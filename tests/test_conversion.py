@@ -231,6 +231,23 @@ class PathSafetyTests(unittest.TestCase):
             with self.assertRaises(ConversionError):
                 convert_manifest(upstream, MANIFEST_PATH)
 
+    def test_manifest_symlink_escape_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp) / "outside"
+            outside.mkdir()
+            external = outside / "plugin.json"
+            external.write_text(
+                json.dumps({"name": "external", "version": "9.9.9"}),
+                encoding="utf-8",
+            )
+            upstream = copy_upstream(tmp)
+            manifest = upstream / ".claude-plugin" / "plugin.json"
+            manifest.unlink()
+            manifest.symlink_to(external)
+            with self.assertRaises(ConversionError) as ctx:
+                convert_manifest(upstream, MANIFEST_PATH)
+        self.assertIn("upstream", str(ctx.exception))
+
 
 class ManifestFileErrorTests(unittest.TestCase):
     def test_missing_manifest_file(self):

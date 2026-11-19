@@ -79,7 +79,7 @@ def convert_manifest(
     """
     root = Path(upstream)
     rel_manifest = _guard_relative_path("manifest", manifest_path)
-    data = _load_manifest(root / rel_manifest, rel_manifest)
+    data = _load_manifest(root, rel_manifest)
 
     name = _resolve_name(data, plugin_id)
     source_version = _resolve_version(data)
@@ -132,12 +132,14 @@ def write_kimi_manifest(path: Path, manifest: dict) -> None:
     target.write_text(text + "\n", encoding="utf-8")
 
 
-def _load_manifest(path: Path, rel_manifest: str) -> dict:
+def _load_manifest(root: Path, rel_manifest: str) -> dict:
+    path = root / rel_manifest
     if not path.is_file():
         raise ConversionError(
             f"manifesto não encontrado em upstream/{rel_manifest}; confira "
             "o caminho informado"
         )
+    _resolved_within_upstream(root, rel_manifest, "campo 'manifest'")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -240,18 +242,20 @@ def _convert_path(root: Path, field: str, raw) -> str:
             f"campo '{field}': caminho declarado {raw!r} não existe no "
             "upstream"
         )
-    resolved_root = root.resolve()
-    resolved_target = target.resolve()
-    if (
-        resolved_target != resolved_root
-        and resolved_root not in resolved_target.parents
-    ):
-        raise ConversionError(
-            f"campo '{field}': caminho {raw!r} resolve para fora de "
-            "upstream/"
-        )
+    resolved_target = _resolved_within_upstream(root, rel, f"campo '{field}'")
     suffix = "/" if resolved_target.is_dir() else ""
     return f"{_UPSTREAM_PREFIX}{rel}{suffix}"
+
+
+def _resolved_within_upstream(root: Path, rel: str, label: str) -> Path:
+    """Resolve `root / rel` e exige que o destino fique dentro de upstream."""
+    resolved_root = root.resolve()
+    resolved = (root / rel).resolve()
+    if resolved != resolved_root and resolved_root not in resolved.parents:
+        raise ConversionError(
+            f"{label}: caminho '{rel}' resolve para fora de upstream/"
+        )
+    return resolved
 
 
 def _guard_relative_path(field: str, value: str) -> str:
