@@ -7,8 +7,9 @@ Regras implementadas aqui:
   resolver dentro do plugin, sem escape por `..` ou symlink;
 - hooks e MCP nunca entram no manifesto Kimi nem são ativados
   automaticamente; se aparecerem, a validação falha;
-- `.git` nunca pode estar presente e todo symlink precisa resolver
-  dentro da raiz validada;
+- `.git` nunca pode estar presente, exceto o gitlink `upstream/.git`
+  do submódulo da adaptação (arquivo `gitdir:`); todo symlink precisa
+  resolver dentro da raiz validada;
 - no modo `packaged=True`, exige também `gateway-source.json` na raiz
   com a proveniência coerente com o manifesto.
 """
@@ -140,12 +141,30 @@ def _validate_capability_paths(root: Path, manifest: dict) -> None:
 def _validate_no_git(root: Path) -> None:
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         dirnames.sort()
-        if ".git" in dirnames or ".git" in filenames:
+        if ".git" in dirnames:
             rel = Path(dirpath).relative_to(root)
             raise ValidationError(
                 f"'.git' presente em {rel / '.git'}; o pacote nunca pode "
                 "conter metadados Git do upstream"
             )
+        if ".git" in filenames and not _is_submodule_gitlink(root, Path(dirpath)):
+            rel = Path(dirpath).relative_to(root)
+            raise ValidationError(
+                f"'.git' presente em {rel / '.git'}; o pacote nunca pode "
+                "conter metadados Git do upstream"
+            )
+
+
+def _is_submodule_gitlink(root: Path, dirpath: Path) -> bool:
+    """Gitlink do submódulo da adaptação: somente o arquivo `upstream/.git`
+    cujo conteúdo aponta para o gitdir do submódulo."""
+    if dirpath != Path(root) / "upstream":
+        return False
+    try:
+        content = (dirpath / ".git").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return content.startswith("gitdir:")
 
 
 def _validate_symlinks(root: Path, current: Path, seen: frozenset = frozenset()) -> None:

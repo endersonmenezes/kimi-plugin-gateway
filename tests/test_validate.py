@@ -180,6 +180,36 @@ class UpstreamSafetyValidationTests(unittest.TestCase):
                 validate_plugin(plugin_dir)
             self.assertIn(".git", str(ctx.exception))
 
+    def test_gitlink_do_submodulo_em_upstream_e_permitido(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = make_plugin(Path(tmp))
+            (plugin_dir / "upstream" / ".git").write_text(
+                "gitdir: ../../../.git/modules/plugins/impeccable/upstream\n",
+                encoding="utf-8",
+            )
+            validate_plugin(plugin_dir)
+
+    def test_arquivo_git_sem_gitdir_em_upstream_e_erro(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = make_plugin(Path(tmp))
+            (plugin_dir / "upstream" / ".git").write_text(
+                "conteúdo estranho\n", encoding="utf-8"
+            )
+            with self.assertRaises(ValidationError) as ctx:
+                validate_plugin(plugin_dir)
+            self.assertIn(".git", str(ctx.exception))
+
+    def test_arquivo_git_fora_de_upstream_e_erro(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin_dir = make_plugin(Path(tmp))
+            nested = plugin_dir / "upstream" / ".claude"
+            (nested / ".git").write_text(
+                "gitdir: ../../../.git/modules/outro\n", encoding="utf-8"
+            )
+            with self.assertRaises(ValidationError) as ctx:
+                validate_plugin(plugin_dir)
+            self.assertIn(".git", str(ctx.exception))
+
     def test_symlink_escapando_de_upstream_e_erro(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
