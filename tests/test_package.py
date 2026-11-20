@@ -73,6 +73,56 @@ def zip_bytes(zip_path: Path, name: str) -> bytes:
         return zf.read(name)
 
 
+def make_crafted_zip(tmp: Path, extra_names: list[str]) -> Path:
+    """ZIP mínimo válido (raiz completa) com entradas extras nomeadas."""
+    zip_path = tmp / "crafted.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("kimi.plugin.json",
+                    json.dumps({"name": "crafted", "version": "1.0.0"}))
+        zf.writestr("gateway-source.json", json.dumps({
+            "id": "crafted",
+            "upstream": {
+                "url": REPOSITORY_URL,
+                "requestedRef": "v1.0.0",
+                "commit": "a" * 40,
+                "sourceVersion": "1.0.0",
+            },
+            "releaseRevision": 1,
+            "tag": "crafted-v1.0.0-gateway.1",
+        }))
+        for name in extra_names:
+            zf.writestr(name, "conteúdo\n")
+    return zip_path
+
+
+class ZipNameSafetyTests(unittest.TestCase):
+    def test_zip_sem_nomes_maliciosos_passa_no_gate(self):
+        from gateway.package import _validate_zip
+
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = make_crafted_zip(Path(tmp), ["upstream/arquivo.txt"])
+            self.assertEqual(_validate_zip(zip_path), [])
+
+    def test_traversal_e_absoluto_em_forma_de_backslash_sao_rejeitados(self):
+        from gateway.package import _validate_zip
+
+        malicious = (
+            "sub\\..\\evil.txt",
+            "..\\evil.txt",
+            "C:\\evil.txt",
+            "\\\\server\\share\\evil.txt",
+            "a/../b.txt",
+            "/abs/evil.txt",
+        )
+        for name in malicious:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    zip_path = make_crafted_zip(Path(tmp), [name])
+                    with self.assertRaises(ValidationError) as ctx:
+                        _validate_zip(zip_path)
+                self.assertIn("inseguro", str(ctx.exception))
+
+
 class PackageLayoutTests(unittest.TestCase):
     def test_manifesto_e_proveniencia_na_raiz_do_zip(self):
         with tempfile.TemporaryDirectory() as tmp:

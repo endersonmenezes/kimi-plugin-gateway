@@ -132,10 +132,19 @@ def _validate_zip(zip_path: Path) -> list[str]:
     with zipfile.ZipFile(zip_path) as zf:
         names = zf.namelist()
         for name in names:
-            if name.startswith("/") or name.startswith("\\") \
-                    or ".." in name.split("/"):
+            # nomes Windows ("a\b", "C:\x") são normalizados antes do
+            # split: um upstream POSIX pode commitar '\' no nome de
+            # arquivo e extratores ingênuos em Windows o interpretariam
+            # como separador.
+            normalized = name.replace("\\", "/")
+            if normalized.startswith("/") or ".." in normalized.split("/"):
                 raise ValidationError(
                     f"pacote com caminho inseguro no ZIP: {name!r}"
+                )
+            if ":" in normalized:
+                raise ValidationError(
+                    f"pacote com caminho inseguro no ZIP: {name!r} "
+                    "(':' não é permitido em nomes de entrada)"
                 )
             parts = name.split("/")
             if ".git" in parts:
