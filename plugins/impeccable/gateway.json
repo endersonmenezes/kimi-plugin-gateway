@@ -1,0 +1,11 @@
+{
+  "id": "impeccable",
+  "releaseRevision": 1,
+  "upstream": {
+    "commit": "aeb001ff6a30707b9a2fa79f4cf6f304440b3466",
+    "manifest": ".claude-plugin/plugin.json",
+    "requestedRef": "skill-v4.10.0",
+    "sourceVersion": "4.10.0",
+    "url": "https://github.com/pbakaus/impeccable"
+  }
+}
