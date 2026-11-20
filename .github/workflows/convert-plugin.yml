@@ -1,0 +1,254 @@
+name: IssueOps — converter plugin Claude
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: Número da Issue de conversão a (re)executar
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: scripts
+
+jobs:
+  prepare:
+    name: Preparar evento e chave de concorrência
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      issue-number: ${{ steps.event.outputs.issue-number }}
+      event-path: ${{ steps.event.outputs.event-path }}
+      plugin-key: ${{ steps.event.outputs.plugin-key }}
+      skip: ${{ steps.event.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Montar evento da Issue e chave de concorrência
+        id: event
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          DISPATCH_ISSUE_NUMBER: ${{ inputs.issue-number }}
+        run: |
+          set -euo pipefail
+          python3 - "$EVENT_NAME" "$EVENT_PATH" "$DISPATCH_ISSUE_NUMBER" <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "scripts")
+          from gateway.issues import parse_issue_form, validate_plugin_id
+
+          event_name, event_path, dispatch_number = sys.argv[1:4]
+
+          def emit(key, value):
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  print(f"{key}={value}", file=fh)
+
+          if event_name == "workflow_dispatch":
+              number = dispatch_number.strip()
+              if not number.isdigit():
+                  print(f"número de Issue inválido: {number!r}", file=sys.stderr)
+                  sys.exit(1)
+          else:
+              data = json.loads(Path(event_path).read_text(encoding="utf-8"))
+              issue = data.get("issue") or {}
+              number = str(issue.get("number") or "")
+              labels = {str(label.get("name")) for label in issue.get("labels") or []}
+              if "conversion" not in labels:
+                  print("Issue sem o rótulo 'conversion'; nada a fazer.")
+                  emit("skip", "true")
+                  emit("issue-number", number)
+                  sys.exit(0)
+
+          payload = subprocess.run(
+              ["gh", "issue", "view", number, "--json", "number,body"],
+              check=True, capture_output=True, text=True,
+          ).stdout
+          event = {"issue": json.loads(payload)}
+          target = Path(os.environ["RUNNER_TEMP"]) / "issue-event.json"
+          target.write_text(json.dumps(event, ensure_ascii=False), encoding="utf-8")
+
+          body = event["issue"].get("body") or ""
+          fields = parse_issue_form(body)
+          desired = fields.get("Id desejado no Gateway (opcional)", "").strip()
+          if desired:
+              try:
+                  key = validate_plugin_id(desired)
+              except Exception:
+                  key = re.sub(r"[^A-Za-z0-9_-]+", "-", desired).strip("-") or "id-invalido"
+          else:
+              raw_url = fields.get(
+                  "URL pública do repositório GitHub", "").strip().rstrip("/")
+              base = raw_url.rsplit("/", 1)[-1].removesuffix(".git").lower() if raw_url else ""
+              key = re.sub(r"[^a-z0-9_-]+", "-", base).strip("-") or f"issue-{number}"
+
+          emit("issue-number", number)
+          emit("event-path", str(target))
+          emit("plugin-key", key)
+          PY
+
+  convert:
+    name: Converter plugin e abrir PR
+    needs: prepare
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: issueops-convert-${{ needs.prepare.outputs.plugin-key }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      ISSUE_NUMBER: ${{ needs.prepare.outputs.issue-number }}
+      EVENT_PATH: ${{ needs.prepare.outputs.event-path }}
+      GATEWAY_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Configurar Git
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Preparar branch da Issue
+        id: branch
+        run: |
+          set -euo pipefail
+          pattern="refs/heads/issueops/issue-${ISSUE_NUMBER}-*"
+          mapfile -t found < <(git ls-remote --heads origin "$pattern" | awk '{print $2}')
+          if [ "${#found[@]}" -gt 1 ]; then
+            echo "há mais de uma branch para a Issue #${ISSUE_NUMBER}:" >&2
+            printf '%s\n' "${found[@]}" >&2
+            exit 1
+          fi
+          if [ "${#found[@]}" -eq 1 ]; then
+            branch="${found[0]#refs/heads/}"
+            git fetch origin "+refs/heads/${branch}:refs/remotes/origin/${branch}"
+            git checkout -B "$branch" "refs/remotes/origin/${branch}"
+            suffix="${branch#issueops/issue-${ISSUE_NUMBER}-}"
+            if [ "$suffix" != "$branch" ] && [ -e "plugins/${suffix}" ]; then
+              git rm -rf --quiet "plugins/${suffix}"
+            fi
+          else
+            git checkout -b "issueops/issue-${ISSUE_NUMBER}-pendente"
+          fi
+          echo "branch-atual=$(git branch --show-current)" >> "$GITHUB_OUTPUT"
+
+      - name: Converter a partir da Issue
+        id: convert
+        run: |
+          set -euo pipefail
+          if [ ! -f marketplace.json ]; then
+            printf '{\n  "version": "2",\n  "plugins": []\n}\n' > marketplace.json
+          fi
+          if ! summary="$(python3 -m gateway convert \
+              --issue-event "$EVENT_PATH" \
+              --repo-root . \
+              --marketplace marketplace.json \
+              --owner-repo "$GATEWAY_REPO" \
+              2> "$RUNNER_TEMP/convert-error.txt")"; then
+            cat "$RUNNER_TEMP/convert-error.txt" >&2
+            exit 1
+          fi
+          printf '%s\n' "$summary"
+          printf '%s\n' "$summary" > "$RUNNER_TEMP/convert-summary.txt"
+          plugin_id="$(awk -F': ' '/^plugin: /{print $2; exit}' "$RUNNER_TEMP/convert-summary.txt")"
+          if [ -z "$plugin_id" ]; then
+            echo "o CLI não reportou o id do plugin convertido" >&2
+            exit 1
+          fi
+          echo "plugin-id=$plugin_id" >> "$GITHUB_OUTPUT"
+
+      - name: Validar e empacotar localmente
+        env:
+          PLUGIN_ID: ${{ steps.convert.outputs.plugin-id }}
+        run: |
+          set -euo pipefail
+          python3 -m gateway validate --plugin-id "$PLUGIN_ID" --repo-root .
+          python3 -m gateway package --plugin-id "$PLUGIN_ID" --repo-root . \
+            --output-dir "$RUNNER_TEMP/dist"
+
+      - name: Consolidar branch, publicar e abrir PR
+        env:
+          PLUGIN_ID: ${{ steps.convert.outputs.plugin-id }}
+          BRANCH_ATUAL: ${{ steps.branch.outputs.branch-atual }}
+        run: |
+          set -euo pipefail
+          branch="issueops/issue-${ISSUE_NUMBER}-${PLUGIN_ID}"
+          if [ "$BRANCH_ATUAL" != "$branch" ]; then
+            git branch -m "$branch"
+          fi
+          export BRANCH_NAME="$branch"
+          conflict="$(gh pr list --state open --limit 200 --json headRefName,url | python3 -c '
+          import json, os, sys
+          mine = os.environ["BRANCH_NAME"]
+          suffix = "-" + os.environ["PLUGIN_ID"]
+          for pr in json.load(sys.stdin):
+              head = pr["headRefName"]
+              if head.startswith("issueops/issue-") and head.endswith(suffix) and head != mine:
+                  print(pr["url"])
+                  break
+          ')"
+          if [ -n "$conflict" ]; then
+            {
+              printf "já existe um PR aberto para o plugin '%s' em outra Issue: %s\n" "$PLUGIN_ID" "$conflict"
+              printf "revise ou feche esse PR antes de repetir a operação.\n"
+            } | tee "$RUNNER_TEMP/convert-error.txt" >&2
+            exit 1
+          fi
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "branch já reflete a conversão; nada a commitar"
+          else
+            git add -A
+            git commit -m "feat: converte plugin ${PLUGIN_ID} (Issue #${ISSUE_NUMBER})"
+          fi
+          git push origin "$branch"
+          if gh pr view "$branch" --json number --jq .number > /dev/null 2>&1; then
+            echo "PR da branch $branch já existe; o push comum o atualizou"
+          else
+            {
+              printf 'Conversão automática do plugin `%s` solicitada na Issue #%s.\n\n' "$PLUGIN_ID" "$ISSUE_NUMBER"
+              printf 'Resumo da operação:\n\n```text\n'
+              cat "$RUNNER_TEMP/convert-summary.txt"
+              printf '```\n\nRevisão humana obrigatória antes do merge.\n\nCloses #%s\n' "$ISSUE_NUMBER"
+            } > "$RUNNER_TEMP/pr-body.md"
+            gh pr create --base main --head "$branch" \
+              --title "feat: converte plugin ${PLUGIN_ID} (Issue #${ISSUE_NUMBER})" \
+              --body-file "$RUNNER_TEMP/pr-body.md"
+          fi
+
+      - name: Comentar erro na Issue
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            printf 'A conversão automática falhou. Motivo:\n\n```text\n'
+            if [ -s "$RUNNER_TEMP/convert-error.txt" ]; then
+              cat "$RUNNER_TEMP/convert-error.txt"
+            else
+              printf 'consulte o log do run para o passo que falhou\n'
+            fi
+            printf '```\n\nRun: %s\n' "$RUN_URL"
+          } > "$RUNNER_TEMP/issue-comment.md"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/issue-comment.md"

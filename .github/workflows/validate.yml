@@ -1,0 +1,52 @@
+name: Validação de PR
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: scripts
+
+jobs:
+  testes:
+    name: Rodar suíte completa de testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Executar unittest completo
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -v
+
+  pacotes:
+    name: Validar e construir todos os pacotes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Validar e empacotar cada plugin sem publicar
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          configs=(plugins/*/gateway.json)
+          if [ "${#configs[@]}" -eq 0 ]; then
+            echo "nenhum plugin convertido ainda; nada a validar"
+            exit 0
+          fi
+          for config in "${configs[@]}"; do
+            plugin_id="$(basename "$(dirname "$config")")"
+            echo "== ${plugin_id} =="
+            python3 -m gateway validate --plugin-id "$plugin_id" --repo-root .
+            python3 -m gateway package --plugin-id "$plugin_id" --repo-root . \
+              --output-dir "$RUNNER_TEMP/dist"
+          done
+          echo "todos os pacotes construídos localmente em $RUNNER_TEMP/dist"

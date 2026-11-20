@@ -1,0 +1,35 @@
+name: Atualizar plugin convertido
+description: Solicita a atualização de um plugin já convertido para uma nova tag, branch ou commit do upstream
+title: "[update] <id do plugin>"
+labels: ["update"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Preencha os campos abaixo para solicitar a atualização de um plugin
+        já convertido. A automação resolve o novo ref, move o submódulo do
+        upstream, preserva overlays e edições manuais e abre um PR
+        vinculado a esta Issue.
+  - type: input
+    id: plugin-id
+    attributes:
+      label: Id do plugin no Gateway
+      description: "Id do diretório plugins/<id>/ já existente neste repositório"
+      placeholder: "meu-plugin"
+    validations:
+      required: true
+  - type: input
+    id: requested-ref
+    attributes:
+      label: Tag, branch ou commit de origem
+      description: "Nova tag (ex.: v1.3.0), branch ou SHA completo do commit upstream"
+      placeholder: "v1.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: Motivo da atualização (opcional)
+      description: "Contexto para quem revisar o PR: motivo da atualização, mudanças relevantes no upstream etc."
+    validations:
+      required: false

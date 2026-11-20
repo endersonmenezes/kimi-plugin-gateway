@@ -1,0 +1,50 @@
+name: Converter plugin Claude
+description: Solicita a conversão automática de um plugin Claude em plugin Kimi distribuído pelo Gateway
+title: "[conversion] <owner>/<repo>"
+labels: ["conversion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Preencha os campos abaixo para solicitar a conversão de um plugin
+        Claude. A automação valida os campos, converte o plugin e abre um
+        PR vinculado a esta Issue — nenhum campo é executado como comando.
+        Campos inválidos geram um comentário de erro nesta Issue.
+  - type: input
+    id: repository-url
+    attributes:
+      label: URL pública do repositório GitHub
+      description: "Somente repositórios públicos do GitHub, ex.: https://github.com/<owner>/<repo>"
+      placeholder: "https://github.com/owner/repo"
+    validations:
+      required: true
+  - type: input
+    id: requested-ref
+    attributes:
+      label: Tag, branch ou commit de origem
+      description: "Tag (ex.: v1.2.0), branch ou SHA completo do commit upstream; o ref é resolvido para um commit completo antes do PR"
+      placeholder: "v1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: plugin-id
+    attributes:
+      label: Id desejado no Gateway (opcional)
+      description: "Id Kimi do plugin (ex.: meu-plugin); deixe vazio para usar o nome do manifesto de origem"
+    validations:
+      required: false
+  - type: input
+    id: manifest-path
+    attributes:
+      label: Caminho do manifesto Claude
+      description: "Caminho relativo do .claude-plugin/plugin.json dentro do repositório upstream"
+      value: ".claude-plugin/plugin.json"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Observações sobre adaptações necessárias (opcional)
+      description: "Contexto para quem revisar o PR: capacidades a adaptar, hooks, MCP, instruções específicas do Claude etc."
+    validations:
+      required: false
