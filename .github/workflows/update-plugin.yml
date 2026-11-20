@@ -25,7 +25,6 @@ jobs:
       issues: read
     outputs:
       issue-number: ${{ steps.event.outputs.issue-number }}
-      event-path: ${{ steps.event.outputs.event-path }}
       plugin-key: ${{ steps.event.outputs.plugin-key }}
       skip: ${{ steps.event.outputs.skip }}
     steps:
@@ -78,11 +77,7 @@ jobs:
               ["gh", "issue", "view", number, "--json", "number,body"],
               check=True, capture_output=True, text=True,
           ).stdout
-          event = {"issue": json.loads(payload)}
-          target = Path(os.environ["RUNNER_TEMP"]) / "issue-event.json"
-          target.write_text(json.dumps(event, ensure_ascii=False), encoding="utf-8")
-
-          body = event["issue"].get("body") or ""
+          body = json.loads(payload).get("body") or ""
           fields = parse_issue_form(body)
           raw_id = fields.get("Id do plugin no Gateway", "").strip()
           try:
@@ -91,7 +86,6 @@ jobs:
               key = "id-invalido-" + (number or "0")
 
           emit("issue-number", number)
-          emit("event-path", str(target))
           emit("plugin-key", key)
           PY
 
@@ -109,7 +103,6 @@ jobs:
       issues: write
     env:
       ISSUE_NUMBER: ${{ needs.prepare.outputs.issue-number }}
-      EVENT_PATH: ${{ needs.prepare.outputs.event-path }}
       GATEWAY_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
@@ -122,6 +115,28 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Materializar evento da Issue neste runner
+        id: issue-event
+        run: |
+          set -euo pipefail
+          gh issue view "$ISSUE_NUMBER" --json number,body \
+            > "$RUNNER_TEMP/issue-payload.json"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          payload = json.loads(
+              (runner_temp / "issue-payload.json").read_text(encoding="utf-8"))
+          target = runner_temp / "issue-event.json"
+          target.write_text(
+              json.dumps({"issue": payload}, ensure_ascii=False),
+              encoding="utf-8")
+          print(f"evento da Issue gravado em {target}")
+          PY
+          echo "event-path=$RUNNER_TEMP/issue-event.json" >> "$GITHUB_OUTPUT"
 
       - name: Preparar branch da Issue
         id: branch
@@ -145,6 +160,8 @@ jobs:
 
       - name: Atualizar a partir da Issue
         id: update
+        env:
+          EVENT_PATH: ${{ steps.issue-event.outputs.event-path }}
         run: |
           set -euo pipefail
           if [ ! -f marketplace.json ]; then

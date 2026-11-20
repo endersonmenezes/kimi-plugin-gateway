@@ -5,6 +5,9 @@ Os arquivos YAML são lidos como texto (sem parser externo) e conferem:
   `main`); permissões mínimas por workflow;
 - ausência de interpolação `${{ ... }}` nos blocos `run` (campos de Issue
   chegam somente como caminho de evento via `--issue-event`);
+- evento da Issue materializado no mesmo job que roda o CLI (`RUNNER_TEMP`
+  não é compartilhado entre jobs: o caminho nunca vem de
+  `needs.prepare.outputs.event-path` e o job do CLI refaz `gh issue view`);
 - checkout recursivo em todos os jobs que tocam em plugins;
 - proibição de force-push; releases somente após `main` ou dispatch
   autorizado; criação de release sem flags de substituição e com
@@ -139,6 +142,17 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
                             '--plugin-id "$PLUGIN_ID"', line,
                             "--plugin-id só pode vir da saída validada do CLI",
                         )
+
+    def test_evento_da_issue_e_materializado_no_job_que_roda_o_cli(self):
+        """RUNNER_TEMP é por runner: o evento não pode cruzar jobs via
+        output; o job do CLI refaz `gh issue view` e grava o arquivo
+        localmente antes de chamar `--issue-event`."""
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertNotIn("needs.prepare.outputs.event-path", text)
+                self.assertIn('gh issue view "$ISSUE_NUMBER"', text)
+                self.assertIn("issue-event.json", text)
+                self.assertIn("steps.issue-event.outputs.event-path", text)
 
     def test_checkout_recursivo_em_todos_os_jobs(self):
         for name, text in self.texts.items():
