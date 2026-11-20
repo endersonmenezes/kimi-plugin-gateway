@@ -2,7 +2,9 @@
 
 Os repositórios upstream são fixtures Git temporárias; a resolução
 externa do GitHub (ref → SHA) e o fetch do snapshot são simulados por
-fakes que operam somente sobre essas fixtures locais.
+fakes que operam somente sobre essas fixtures locais. A exceção é a
+suíte de `resolve_remote_ref`, que exercita o `git ls-remote` real
+contra repositórios locais para cobrir o destag de tags anotadas.
 """
 
 import contextlib
@@ -167,6 +169,60 @@ DANGEROUS_REFS = (
     "*.lock",
     "refs/heads/x:y",
 )
+
+
+@unittest.skipIf(shutil.which("git") is None, "git não disponível")
+class ResolveRemoteRefTests(unittest.TestCase):
+    """Resolução real de refs: tags anotadas destagam para o commit.
+
+    Regressão do caso `skill-v4.10.0` do Impeccable: um `ls-remote`
+    filtrado omite a linha `^{}` e devolvia o SHA do objeto tag.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name) / "upstream"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q")
+        (self.repo / "arquivo.txt").write_text("conteúdo\n", encoding="utf-8")
+        git(self.repo, "add", "-A")
+        git(
+            self.repo,
+            "-c", "user.name=Gateway Tests",
+            "-c", "user.email=tests@example.com",
+            "commit", "-q", "-m", "base",
+        )
+        self.commit = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "config", "tag.gpgSign", "false")
+        git(self.repo, "tag", "-a", "-m", "release anotada", "v-anotada")
+        self.tag_object = git(self.repo, "rev-parse", "v-anotada^{tag}")
+        git(self.repo, "tag", "v-leve")
+        git(self.repo, "branch", "ramo")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def resolve(self, ref: str) -> str:
+        return operations.resolve_remote_ref(str(self.repo), ref)
+
+    def test_tag_anotada_resolve_no_commit_destag(self):
+        resolved = self.resolve("v-anotada")
+        self.assertEqual(resolved, self.commit)
+        self.assertNotEqual(resolved, self.tag_object)
+        self.assertTrue(resolved.isalnum() and len(resolved) == 40)
+
+    def test_tag_leve_resolve_no_commit(self):
+        self.assertEqual(self.resolve("v-leve"), self.commit)
+
+    def test_branch_resolve_no_commit(self):
+        self.assertEqual(self.resolve("ramo"), self.commit)
+
+    def test_sha_completo_e_aceito_diretamente(self):
+        self.assertEqual(self.resolve(self.commit), self.commit)
+
+    def test_ref_inexistente_e_erro(self):
+        with self.assertRaises(OperationError):
+            self.resolve("nao-existe")
 
 
 @unittest.skipIf(shutil.which("git") is None, "git não disponível")

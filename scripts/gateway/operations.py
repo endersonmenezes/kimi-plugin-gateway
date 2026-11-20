@@ -6,6 +6,8 @@ Regras implementadas aqui:
   valor de Issue vira shell;
 - a atualização mantém a URL de origem cadastrada, não regenera o
   manifesto inteiro e nunca remove ou reescreve overlays;
+- tags anotadas são resolvidas no commit destag (`peel`): o SHA gravado
+  é sempre o commit completo, nunca o objeto tag;
 - `sourceVersion` vem sempre do campo `version` do manifesto upstream,
   nunca do ref solicitado;
 - `releaseRevision` reinicia em 1 quando a versão muda e incrementa quando
@@ -118,16 +120,25 @@ def validate_requested_ref(value: str) -> str:
 
 
 def resolve_remote_ref(repository_url: str, requested_ref: str) -> str:
-    """Resolve um ref remoto em SHA completo, como o GitHub faria.
+    """Resolve um ref remoto no SHA completo do commit, como o GitHub faria.
 
     SHA completo é aceito diretamente; demais refs são resolvidos com
-    `git ls-remote`. Em testes, esta função é substituída por um fake que
-    opera sobre repositórios Git temporários.
+    `git ls-remote`. Tag anotada é destagada (`peel`): o padrão explícito
+    `refs/tags/<ref>^{}` força o commit por trás do objeto tag — um
+    `ls-remote` filtrado omite a linha destagada e devolveria o SHA do
+    objeto tag, que não é um commit. Em testes, esta função é substituída
+    por um fake que opera sobre repositórios Git temporários.
     """
     ref = validate_requested_ref(requested_ref)
     if _FULL_SHA.fullmatch(ref):
         return ref
-    proc = _run_git(["ls-remote", repository_url, ref])
+    proc = _run_git([
+        "ls-remote", repository_url,
+        f"refs/tags/{ref}^{{}}",
+        f"refs/tags/{ref}",
+        f"refs/heads/{ref}",
+        ref,
+    ])
     resolved: str | None = None
     for line in proc.stdout.splitlines():
         parts = line.split()
