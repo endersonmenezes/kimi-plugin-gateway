@@ -3,14 +3,16 @@
 Os subcomandos `convert` e `update` orquestram as operações das Tasks 1–3
 e imprimem o resumo (id, commit, tag e relatório) para o corpo do PR.
 Os subcomandos `validate` e `package` validam adaptações e empacotam
-plugins autocontidos (Task 4). O restante será implementado pelas
-tarefas seguintes do plano e falha com um erro explícito de "não
-implementado".
+plugins autocontidos (Task 4). O subcomando `changed-plugins` (Task 5)
+lê o evento de push e emite o JSON com os plugins alterados para a
+Action de release. O restante será implementado pelas tarefas seguintes
+do plano e falha com um erro explícito de "não implementado".
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -25,6 +27,7 @@ from .operations import (
     run_update,
 )
 from .package import build_package
+from .release import changed_plugins, load_push_event, push_range_from_event
 from .validate import validate_plugin
 
 __all__ = [
@@ -84,9 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
                          help="raiz do repositório do Gateway (padrão: .)")
     package.set_defaults(handler=_cmd_package)
 
-    subparsers.add_parser(
-        "changed-plugins", help="operação 'changed-plugins' (ainda não implementada)"
+    changed = subparsers.add_parser(
+        "changed-plugins", help="lista os plugins alterados em um push"
     )
+    changed.add_argument("--event-path", required=True,
+                         help="caminho do JSON do evento de push do GitHub")
+    changed.add_argument("--repo-root", default=".",
+                         help="raiz do repositório do Gateway (padrão: .)")
+    changed.set_defaults(handler=_cmd_changed_plugins)
 
     for sub in (convert, update):
         sub.add_argument("--repo-root", default=".",
@@ -165,6 +173,14 @@ def _cmd_package(args: argparse.Namespace) -> int:
         print("diagnósticos:")
         for line in result.warnings:
             print(f"- {line}")
+    return 0
+
+
+def _cmd_changed_plugins(args: argparse.Namespace) -> int:
+    event = load_push_event(Path(args.event_path))
+    before, after = push_range_from_event(event)
+    plugins = changed_plugins(Path(args.repo_root), before, after)
+    print(json.dumps({"plugins": plugins}, ensure_ascii=False))
     return 0
 
 
