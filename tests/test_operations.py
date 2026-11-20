@@ -498,7 +498,7 @@ class UpdateOperationTests(unittest.TestCase):
                 any("removida" in e and "skills" in e for e in result.report)
             )
 
-    def test_update_keeps_overlay_when_target_disappears(self):
+    def test_update_blocks_when_overlay_target_disappears(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             upstream = make_upstream(
@@ -516,11 +516,71 @@ class UpdateOperationTests(unittest.TestCase):
             overlay.mkdir(parents=True)
             (overlay / "SKILL.md").write_text("# overlay humano\n", encoding="utf-8")
             with simulated_github(fake):
-                result = run_update(root, update_inputs(requested_ref="v2.0.0"))
+                with self.assertRaises(OperationError) as ctx:
+                    run_update(root, update_inputs(requested_ref="v2.0.0"))
+            self.assertIn(".claude/skills/fixture/SKILL.md", str(ctx.exception))
+            self.assertIn("PR manual", str(ctx.exception))
+            # upstream vivo e config intactos: a atualização não concluiu
             self.assertTrue((overlay / "SKILL.md").is_file())
             self.assertTrue(
-                any("afetado" in e and ".claude/skills" in e for e in result.report)
+                (initial.plugin_dir / "upstream" / ".claude" / "skills" / "fixture" / "SKILL.md")
+                .is_file()
             )
+            config = load_config(initial.plugin_dir / "gateway.json")
+            self.assertEqual(config.commit, initial.commit)
+            self.assertEqual(config.source_version, "1.0.0")
+
+    def test_update_allows_additive_overlay_without_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            upstream = make_upstream(
+                tmp, [("v1.0.0", "1.0.0"), ("v1.1.0", "1.1.0")]
+            )
+            fake = FakeGitHub(upstream)
+            root = make_repo_root(tmp)
+            with simulated_github(fake):
+                initial = run_conversion(
+                    root, conversion_inputs(plugin_id="fixture-plugin")
+                )
+            overlay = initial.plugin_dir / "overlays" / "docs" / "extra.md"
+            overlay.parent.mkdir(parents=True)
+            overlay.write_text("# overlay aditivo novo\n", encoding="utf-8")
+            with simulated_github(fake):
+                result = run_update(root, update_inputs(requested_ref="v1.1.0"))
+            self.assertTrue(overlay.is_file())
+            self.assertTrue(any("docs/extra.md" in e for e in result.report))
+            config = load_config(initial.plugin_dir / "gateway.json")
+            self.assertEqual(config.source_version, "1.1.0")
+
+    def test_update_blocks_stale_declared_removal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            upstream = make_upstream(
+                tmp, [("v1.0.0", "1.0.0"), ("v2.0.0", "2.0.0")]
+            )
+            fake = FakeGitHub(upstream)
+            root = make_repo_root(tmp)
+            with simulated_github(fake):
+                initial = run_conversion(
+                    root, conversion_inputs(plugin_id="fixture-plugin")
+                )
+            legacy = initial.plugin_dir / "upstream" / "bin" / "legacy.sh"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("# legado\n", encoding="utf-8")
+            gateway_path = initial.plugin_dir / "gateway.json"
+            gateway = read_json(gateway_path)
+            gateway["overlays"] = {"remove": ["bin/legacy.sh"]}
+            write_json(gateway_path, gateway)
+
+            with simulated_github(fake):
+                with self.assertRaises(OperationError) as ctx:
+                    run_update(root, update_inputs(requested_ref="v2.0.0"))
+            self.assertIn("bin/legacy.sh", str(ctx.exception))
+            # nada foi substituído: o alvo continua no upstream vivo
+            self.assertTrue(legacy.is_file())
+            config = load_config(gateway_path)
+            self.assertEqual(config.commit, initial.commit)
+            self.assertEqual(config.remove_paths, ["bin/legacy.sh"])
 
     def test_update_unknown_plugin_fails(self):
         with simulated_github(self.fake):

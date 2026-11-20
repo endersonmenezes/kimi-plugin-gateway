@@ -6,6 +6,10 @@ Regras implementadas aqui:
   valor de Issue vira shell;
 - a atualização mantém a URL de origem cadastrada, não regenera o
   manifesto inteiro e nunca remove ou reescreve overlays;
+- atualização que tira do novo upstream o alvo de um overlay ou de uma
+  remoção declarada é bloqueada com `OperationError` acionável (exige
+  PR manual corretivo); overlays aditivos, sem alvo em nenhum upstream,
+  seguem permitidos;
 - tags anotadas são resolvidas no commit destag (`peel`): o SHA gravado
   é sempre o commit completo, nunca o objeto tag;
 - `sourceVersion` vem sempre do campo `version` do manifesto upstream,
@@ -287,6 +291,17 @@ def run_update(repo_root: Path, inputs: UpdateInputs) -> OperationResult:
             upstream_dir, config.manifest_path, plugin_id=plugin_id).manifest)
         new_caps = _capability_set(convert_manifest(
             staging, config.manifest_path, plugin_id=plugin_id).manifest)
+        stale = _stale_overlay_paths(
+            upstream_dir, staging, plugin_dir / "overlays", config.remove_paths
+        )
+        if stale:
+            raise OperationError(
+                "alvo de overlay/remoção sumiu no novo upstream: "
+                + ", ".join(stale)
+                + "; a atualização foi bloqueada para não publicar overlay "
+                "obsoleto — resolva em PR manual corretivo e tente "
+                "novamente"
+            )
         shutil.rmtree(upstream_dir)
         shutil.move(str(staging), str(upstream_dir))
 
@@ -454,6 +469,29 @@ def _capability_report(old: dict[str, list[str]],
         for path in removed:
             report.append(f"capacidade removida: {name} {path}")
     return report
+
+
+def _stale_overlay_paths(
+    old_upstream: Path,
+    new_upstream: Path,
+    overlays_dir: Path,
+    remove_paths: list[str],
+) -> list[str]:
+    """Alvos que existiam no upstream antigo e sumiram no novo.
+
+    Overlays aditivos (sem alvo em nenhum dos dois) não são stale e
+    seguem permitidos; a comparação só é possível durante a atualização,
+    quando os dois snapshots coexistem.
+    """
+    stale: list[str] = []
+    for overlay in sorted(p for p in overlays_dir.rglob("*") if p.is_file()):
+        rel = overlay.relative_to(overlays_dir).as_posix()
+        if (old_upstream / rel).exists() and not (new_upstream / rel).exists():
+            stale.append(f"overlay '{rel}'")
+    for rel in remove_paths:
+        if (old_upstream / rel).exists() and not (new_upstream / rel).exists():
+            stale.append(f"remoção declarada '{rel}'")
+    return stale
 
 
 def _overlay_report(plugin_dir: Path) -> list[str]:
