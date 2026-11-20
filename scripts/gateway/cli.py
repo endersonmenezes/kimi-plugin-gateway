@@ -2,8 +2,10 @@
 
 Os subcomandos `convert` e `update` orquestram as operações das Tasks 1–3
 e imprimem o resumo (id, commit, tag e relatório) para o corpo do PR.
-Os demais subcomandos serão implementados pelas tarefas seguintes do
-plano e falham com um erro explícito de "não implementado".
+Os subcomandos `validate` e `package` validam adaptações e empacotam
+plugins autocontidos (Task 4). O restante será implementado pelas
+tarefas seguintes do plano e falha com um erro explícito de "não
+implementado".
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .config import load_config
+from .config import load_config, validate_plugin_id
 from .issues import IssueInputError
 from .marketplace import upsert_marketplace_entry
 from .operations import (
@@ -22,6 +24,8 @@ from .operations import (
     run_conversion,
     run_update,
 )
+from .package import build_package
+from .validate import validate_plugin
 
 __all__ = [
     "INPUT_ERROR_EXIT",
@@ -64,8 +68,25 @@ def build_parser() -> argparse.ArgumentParser:
                         help="nova tag, branch ou commit completo do upstream")
     update.set_defaults(handler=_cmd_update)
 
-    for name in ("validate", "package", "changed-plugins"):
-        subparsers.add_parser(name, help=f"operação '{name}' (ainda não implementada)")
+    validate = subparsers.add_parser("validate", help="valida um plugin convertido")
+    validate.add_argument("--plugin-id", required=True,
+                          help="id do plugin existente em plugins/<id>/")
+    validate.add_argument("--repo-root", default=".",
+                          help="raiz do repositório do Gateway (padrão: .)")
+    validate.set_defaults(handler=_cmd_validate)
+
+    package = subparsers.add_parser("package", help="empacota um plugin validado")
+    package.add_argument("--plugin-id", required=True,
+                         help="id do plugin existente em plugins/<id>/")
+    package.add_argument("--output-dir", required=True,
+                         help="diretório de saída do ZIP do plugin")
+    package.add_argument("--repo-root", default=".",
+                         help="raiz do repositório do Gateway (padrão: .)")
+    package.set_defaults(handler=_cmd_package)
+
+    subparsers.add_parser(
+        "changed-plugins", help="operação 'changed-plugins' (ainda não implementada)"
+    )
 
     for sub in (convert, update):
         sub.add_argument("--repo-root", default=".",
@@ -117,6 +138,45 @@ def _cmd_update(args: argparse.Namespace) -> int:
     _maybe_upsert_marketplace(args, result)
     _print_result("atualização", result)
     return 0
+
+
+def _cmd_validate(args: argparse.Namespace) -> int:
+    plugin_dir = _existing_plugin_dir(args)
+    diagnostics = validate_plugin(plugin_dir)
+    print("gateway: validação concluída")
+    print(f"plugin: {plugin_dir.name}")
+    if diagnostics:
+        print("diagnósticos:")
+        for line in diagnostics:
+            print(f"- {line}")
+    else:
+        print("diagnósticos: nenhum")
+    return 0
+
+
+def _cmd_package(args: argparse.Namespace) -> int:
+    plugin_dir = _existing_plugin_dir(args)
+    result = build_package(plugin_dir, Path(args.output_dir))
+    print("gateway: pacote criado")
+    print(f"plugin: {result.plugin_id}")
+    print(f"zip: {result.zip_path}")
+    print(f"sha256: {result.sha256}")
+    if result.warnings:
+        print("diagnósticos:")
+        for line in result.warnings:
+            print(f"- {line}")
+    return 0
+
+
+def _existing_plugin_dir(args: argparse.Namespace) -> Path:
+    plugin_id = validate_plugin_id(args.plugin_id)
+    plugin_dir = Path(args.repo_root) / "plugins" / plugin_id
+    if not (plugin_dir / "gateway.json").is_file():
+        raise _InputError(
+            f"plugin '{plugin_id}' não encontrado em "
+            f"plugins/{plugin_id}/gateway.json; confira o id informado"
+        )
+    return plugin_dir
 
 
 def _maybe_upsert_marketplace(
