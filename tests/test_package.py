@@ -6,8 +6,10 @@ script-marca upstream que prova que nenhuma etapa executa código do
 upstream.
 """
 
+import contextlib
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -26,6 +28,28 @@ FIXTURE = Path(__file__).parent / "fixtures" / "claude-basic"
 MANIFEST_PATH = ".claude-plugin/plugin.json"
 REPOSITORY_URL = "https://github.com/fixture/plugin"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+LOCAL_TRANSPORT_CONFIG = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "protocol.file.allow",
+    "GIT_CONFIG_VALUE_0": "always",
+}
+
+
+@contextlib.contextmanager
+def local_upstream(repo: Path):
+    """Executa as operações contra o repositório Git temporário `repo`.
+
+    Só o hook `operations._remote_url` é substituído (URL pública da
+    fixture → caminho local); clone, fetch, checkout, `.gitmodules` e
+    gitlink rodam de verdade, sem mocks de subprocess.
+    """
+    def remote_url(repository_url: str) -> str:
+        return str(repo) if repository_url == REPOSITORY_URL else repository_url
+
+    with mock.patch.object(operations, "_remote_url", remote_url), \
+            mock.patch.dict(os.environ, LOCAL_TRANSPORT_CONFIG):
+        yield
 
 
 def write_json(path: Path, payload: dict) -> None:
@@ -121,6 +145,24 @@ class ZipNameSafetyTests(unittest.TestCase):
                     with self.assertRaises(ValidationError) as ctx:
                         _validate_zip(zip_path)
                 self.assertIn("inseguro", str(ctx.exception))
+
+    def test_backslash_sem_perigo_nao_e_rejeitado(self):
+        from gateway.package import _validate_zip
+
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = make_crafted_zip(Path(tmp), ["upstream/a\\b.txt"])
+            self.assertEqual(_validate_zip(zip_path), [])
+
+    def test_nome_com_backslash_escondendo_pasta_git_e_rejeitado(self):
+        # regressão: `name.split("/")` cru não via o ".git" escondido atrás
+        # de backslashes; o gate precisa usar o nome normalizado.
+        from gateway.package import _validate_zip
+
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = make_crafted_zip(Path(tmp), ["upstream/a\\.git\\b"])
+            with self.assertRaises(ValidationError) as ctx:
+                _validate_zip(zip_path)
+        self.assertIn("'.git'", str(ctx.exception))
 
 
 class PackageLayoutTests(unittest.TestCase):
@@ -317,26 +359,6 @@ def git(repo: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
-class FakeGitHub:
-    """Simula a resolução externa do GitHub usando um repositório local."""
-
-    def __init__(self, repo: Path):
-        self.repo = Path(repo)
-
-    def resolve(self, repository_url: str, requested_ref: str) -> str:
-        return git(self.repo, "rev-parse", f"{requested_ref}^{{commit}}")
-
-    def fetch(self, repository_url: str, commit: str, destination: Path) -> None:
-        dest = Path(destination)
-        subprocess.run(
-            ["git", "clone", "--quiet", str(self.repo), str(dest)],
-            check=True,
-            capture_output=True,
-        )
-        git(dest, "checkout", "--quiet", "--detach", commit)
-        shutil.rmtree(dest / ".git")
-
-
 def make_upstream_repo(tmp: Path) -> Path:
     repo = tmp / f"upstream-{uuid.uuid4().hex}"
     shutil.copytree(FIXTURE, repo)
@@ -360,9 +382,8 @@ class MarkerScriptTests(unittest.TestCase):
             repo = make_upstream_repo(tmp)
             root = tmp / "repo"
             root.mkdir()
-            fake = FakeGitHub(repo)
-            with mock.patch.object(operations, "resolve_remote_ref", fake.resolve), \
-                    mock.patch.object(operations, "fetch_upstream_tree", fake.fetch):
+            git(root, "init", "-q")
+            with local_upstream(repo):
                 result = run_conversion(
                     root,
                     ConversionInputs(

@@ -4,12 +4,21 @@ Regras implementadas aqui:
 - toda operação Git usa `subprocess.run` com lista de argumentos e
   `shell=False`; o ref é validado antes de qualquer chamada Git e nenhum
   valor de Issue vira shell;
+- o upstream persistido em `plugins/<id>/upstream` é um submódulo Git
+  real: `.gitmodules` com a URL pública registrada, gitlink mode 160000 no
+  índice da raiz e checkout destacado no SHA completo resolvido; clone,
+  fetch e checkout não executam código do upstream;
+- a conversão valida tudo em cópia temporária antes de registrar o
+  submódulo e desfaz o registro parcial se a criação falhar;
 - a atualização mantém a URL de origem cadastrada, não regenera o
-  manifesto inteiro e nunca remove ou reescreve overlays;
+  manifesto inteiro e nunca remove ou reescreve overlays; ela só move o
+  submódulo existente (fetch + checkout) e deixa o gitlink antigo no
+  índice para o workflow stagear — nunca substitui o gitlink por diretório
+  comum;
 - atualização que tira do novo upstream o alvo de um overlay ou de uma
   remoção declarada é bloqueada com `OperationError` acionável (exige
-  PR manual corretivo); overlays aditivos, sem alvo em nenhum upstream,
-  seguem permitidos;
+  PR manual corretivo) antes de qualquer mutação no submódulo; overlays
+  aditivos, sem alvo em nenhum upstream, seguem permitidos;
 - tags anotadas são resolvidas no commit destag (`peel`): o SHA gravado
   é sempre o commit completo, nunca o objeto tag;
 - `sourceVersion` vem sempre do campo `version` do manifesto upstream,
@@ -47,6 +56,8 @@ __all__ = [
     "OperationError",
     "OperationResult",
     "UpdateInputs",
+    "add_upstream_submodule",
+    "checkout_upstream_submodule",
     "convert_plugin",
     "fetch_upstream_tree",
     "resolve_remote_ref",
@@ -123,6 +134,16 @@ def validate_requested_ref(value: str) -> str:
     return raw
 
 
+def _remote_url(repository_url: str) -> str:
+    """URL efetiva usada no acesso Git ao remote.
+
+    Em produção é a própria URL pública registrada; nos testes o valor é
+    redirecionado para repositórios Git temporários locais, exercitando o
+    plumbing real (clone/fetch/checkout) sem rede.
+    """
+    return repository_url
+
+
 def resolve_remote_ref(repository_url: str, requested_ref: str) -> str:
     """Resolve um ref remoto no SHA completo do commit, como o GitHub faria.
 
@@ -130,14 +151,15 @@ def resolve_remote_ref(repository_url: str, requested_ref: str) -> str:
     `git ls-remote`. Tag anotada é destagada (`peel`): o padrão explícito
     `refs/tags/<ref>^{}` força o commit por trás do objeto tag — um
     `ls-remote` filtrado omite a linha destagada e devolveria o SHA do
-    objeto tag, que não é um commit. Em testes, esta função é substituída
-    por um fake que opera sobre repositórios Git temporários.
+    objeto tag, que não é um commit. Em testes, a URL vista por esta
+    função pode ser redirecionada por `_remote_url` para repositórios
+    Git temporários.
     """
     ref = validate_requested_ref(requested_ref)
     if _FULL_SHA.fullmatch(ref):
         return ref
     proc = _run_git([
-        "ls-remote", repository_url,
+        "ls-remote", _remote_url(repository_url),
         f"refs/tags/{ref}^{{}}",
         f"refs/tags/{ref}",
         f"refs/heads/{ref}",
@@ -162,17 +184,20 @@ def resolve_remote_ref(repository_url: str, requested_ref: str) -> str:
 
 
 def fetch_upstream_tree(repository_url: str, commit: str, destination: Path) -> None:
-    """Materializa o snapshot de `commit` em `destination`, sem `.git`.
+    """Materializa em `destination` uma cópia temporária do snapshot de
+    `commit`, sem `.git`, usada apenas para leitura de validação.
 
     `git clone` não executa código do repositório clonado; o checkout é
-    fixado no SHA completo e os metadados Git são removidos.
+    fixado no SHA completo e os metadados Git são removidos. O estado
+    persistido da adaptação é o submódulo Git (`add_upstream_submodule`),
+    nunca esta cópia.
     """
     if not _FULL_SHA.fullmatch(commit):
         raise OperationError(f"commit inválido para fetch: {commit!r}")
     dest = Path(destination)
     if dest.exists():
         shutil.rmtree(dest)
-    _run_git(["clone", "--quiet", repository_url, str(dest)])
+    _run_git(["clone", "--quiet", _remote_url(repository_url), str(dest)])
     _run_git(["-C", str(dest), "checkout", "--quiet", "--detach", commit])
     git_meta = dest / ".git"
     if git_meta.is_dir():
@@ -181,12 +206,69 @@ def fetch_upstream_tree(repository_url: str, commit: str, destination: Path) -> 
         git_meta.unlink()
 
 
+def add_upstream_submodule(
+    repo_root: Path,
+    repository_url: str,
+    upstream_rel: str,
+    commit: str,
+) -> None:
+    """Registra `upstream_rel` como submódulo Git fixado em `commit`.
+
+    Grava a seção em `.gitmodules` com a URL pública registrada (não o
+    caminho de acesso), clona o upstream para o caminho, faz checkout
+    destacado no SHA completo e atualiza o gitlink (mode 160000) no índice
+    da raiz. Clone, fetch e checkout não executam código do upstream.
+    """
+    if not _FULL_SHA.fullmatch(commit):
+        raise OperationError(f"commit inválido para submódulo: {commit!r}")
+    root = Path(repo_root)
+    _run_git([
+        "-C", str(root), "submodule", "add", "--force",
+        _remote_url(repository_url), upstream_rel,
+    ])
+    upstream_dir = root / upstream_rel
+    _run_git(["-C", str(upstream_dir), "fetch", _remote_url(repository_url), commit])
+    _run_git(["-C", str(upstream_dir), "checkout", "--quiet", "--detach", commit])
+    _run_git([
+        "-C", str(root), "config", "-f", ".gitmodules",
+        f"submodule.{upstream_rel}.url", repository_url,
+    ])
+    _run_git(["-C", str(root), "add", "--", upstream_rel, ".gitmodules"])
+
+
+def checkout_upstream_submodule(
+    upstream_dir: Path,
+    repository_url: str,
+    commit: str,
+) -> None:
+    """Move o submódulo existente para `commit` (fetch + checkout destacado).
+
+    O índice da raiz não é atualizado de propósito: ele mantém o gitlink
+    antigo, `git status` passa a reportar o submódulo como modificado e o
+    workflow stagea o novo SHA com `git add -A`. Um diretório comum sem
+    `.git` é rejeitado — o gitlink nunca vira cópia vendored.
+    """
+    if not _FULL_SHA.fullmatch(commit):
+        raise OperationError(f"commit inválido para checkout: {commit!r}")
+    upstream = Path(upstream_dir)
+    if not (upstream / ".git").exists():
+        raise OperationError(
+            f"upstream em {upstream} não é um submódulo Git (falta "
+            "upstream/.git); a atualização exige PR manual para registrar "
+            "a origem como submódulo"
+        )
+    _run_git(["-C", str(upstream), "fetch", _remote_url(repository_url), commit])
+    _run_git(["-C", str(upstream), "checkout", "--quiet", "--detach", commit])
+
+
 def run_conversion(repo_root: Path, inputs: ConversionInputs) -> OperationResult:
     """Cria `plugins/<id>/` a partir do upstream e devolve o resumo do PR.
 
     A duplicidade de id é rejeitada antes de qualquer operação Git quando
     o id é informado; com `plugin_id=None`, o id vem do nome do manifesto
-    upstream e a checagem ocorre após o fetch.
+    upstream, lido em cópia temporária de validação. Todas as leituras e
+    validações acontecem antes de registrar o submódulo; se a criação dele
+    falhar, o registro parcial é desfeito antes do erro propagar.
     """
     root = Path(repo_root)
     url = _guard("repository_url", inputs.repository_url, _validate_repository_url)
@@ -207,22 +289,28 @@ def run_conversion(repo_root: Path, inputs: ConversionInputs) -> OperationResult
         converted = convert_manifest(staging, manifest_path, plugin_id=plugin_id)
         resolved_id = plugin_id if plugin_id is not None \
             else validate_plugin_id(converted.manifest["name"])
-        plugin_dir = plugins_root / resolved_id
-        _reject_existing_plugin(plugin_dir)
-        plugin_dir.mkdir(parents=True)
-        shutil.move(str(staging), str(plugin_dir / "upstream"))
-        write_kimi_manifest(plugin_dir / "kimi.plugin.json", converted.manifest)
-        _write_json(plugin_dir / "gateway.json", _config_payload(
-            plugin_id=resolved_id,
-            upstream_url=url,
-            requested_ref=ref,
-            commit=sha,
-            manifest_path=manifest_path,
-            source_version=converted.source_version,
-            release_revision=1,
-            remove_paths=(),
-        ))
-        (plugin_dir / "overlays").mkdir()
+        _reject_existing_plugin(plugins_root / resolved_id)
+
+    plugin_dir = plugins_root / resolved_id
+    plugin_dir.mkdir(parents=True)
+    upstream_rel = f"plugins/{resolved_id}/upstream"
+    try:
+        add_upstream_submodule(root, url, upstream_rel, sha)
+    except OperationError:
+        _undo_upstream_submodule(root, upstream_rel, plugin_dir)
+        raise
+    write_kimi_manifest(plugin_dir / "kimi.plugin.json", converted.manifest)
+    _write_json(plugin_dir / "gateway.json", _config_payload(
+        plugin_id=resolved_id,
+        upstream_url=url,
+        requested_ref=ref,
+        commit=sha,
+        manifest_path=manifest_path,
+        source_version=converted.source_version,
+        release_revision=1,
+        remove_paths=(),
+    ))
+    (plugin_dir / "overlays").mkdir()
 
     config = load_config(plugin_dir / "gateway.json")
     tag = release_tag(config)
@@ -254,7 +342,11 @@ def run_update(repo_root: Path, inputs: UpdateInputs) -> OperationResult:
 
     A URL de origem cadastrada é mantida; o manifesto Kimi existente só
     tem o campo gerado `version` atualizado; overlays nunca são removidos,
-    renomeados ou reescritos.
+    renomeados ou reescritos. Versões e capacidades são lidas e o
+    stale-overlay é verificado contra uma cópia temporária do novo
+    snapshot antes de qualquer mutação; só então o submódulo existente é
+    movido com fetch + checkout destacado, deixando o gitlink antigo no
+    índice para o workflow stagear o novo SHA.
     """
     root = Path(repo_root)
     plugin_id = validate_plugin_id(inputs.plugin_id)
@@ -302,8 +394,7 @@ def run_update(repo_root: Path, inputs: UpdateInputs) -> OperationResult:
                 "obsoleto — resolva em PR manual corretivo e tente "
                 "novamente"
             )
-        shutil.rmtree(upstream_dir)
-        shutil.move(str(staging), str(upstream_dir))
+    checkout_upstream_submodule(upstream_dir, config.upstream_url, sha)
 
     revision = 1 if new_version != config.source_version \
         else config.release_revision + 1
@@ -361,6 +452,43 @@ def _run_git(args: list[str]) -> subprocess.CompletedProcess:
         raise OperationError(
             f"operação Git falhou ({command} ...): {exc.stderr.strip()}"
         ) from exc
+
+
+def _try_git(*args: str) -> None:
+    """Executa Git ignorando falhas (limpeza best-effort de rollback)."""
+    try:
+        subprocess.run(
+            ["git", *args],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        pass
+
+
+def _undo_upstream_submodule(root: Path, upstream_rel: str, plugin_dir: Path) -> None:
+    """Desfaz o registro parcial de um submódulo de conversão que falhou."""
+    _try_git("-C", str(root), "submodule", "deinit", "-f", "--", upstream_rel)
+    _try_git("-C", str(root), "rm", "--cached", "-f", "--ignore-unmatch", "--",
+             upstream_rel)
+    _try_git("-C", str(root), "config", "-f", ".gitmodules",
+             "--remove-section", f"submodule.{upstream_rel}")
+    _try_git("-C", str(root), "config", "--remove-section",
+             f"submodule.{upstream_rel}")
+    shutil.rmtree(plugin_dir, ignore_errors=True)
+    gitmodules = root / ".gitmodules"
+    if not gitmodules.is_file():
+        return
+    remaining = [
+        line for line in gitmodules.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", ";"))
+    ]
+    if not remaining:
+        _try_git("-C", str(root), "rm", "--cached", "--ignore-unmatch", "--",
+                 ".gitmodules")
+        gitmodules.unlink(missing_ok=True)
 
 
 def _guard(name: str, value: str, validator) -> str:

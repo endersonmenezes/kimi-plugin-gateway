@@ -1,14 +1,19 @@
 """Testes das operações de conversão e atualização.
 
-Os repositórios upstream são fixtures Git temporárias; a resolução
-externa do GitHub (ref → SHA) e o fetch do snapshot são simulados por
-fakes que operam somente sobre essas fixtures locais. A exceção é a
-suíte de `resolve_remote_ref`, que exercita o `git ls-remote` real
-contra repositórios locais para cobrir o destag de tags anotadas.
+Os repositórios upstream são fixtures Git temporárias e as operações
+executam o plumbing real de submódulos contra elas: o context manager
+`local_upstream` redireciona apenas o hook `operations._remote_url` (a URL
+pública da fixture aponta para o caminho local, como um DNS de teste) e
+libera o transporte `file` via config de ambiente. Assim `.gitmodules`,
+gitlink mode 160000 e os checkouts destacados são provados com Git de
+verdade, sem mocks de subprocess. A exceção é a suíte de
+`resolve_remote_ref`, que exercita o `git ls-remote` real contra
+repositórios locais para cobrir o destag de tags anotadas.
 """
 
 import contextlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -89,34 +94,31 @@ def make_upstream(
     return repo
 
 
-class FakeGitHub:
-    """Simula a resolução externa do GitHub usando um repositório local."""
-
-    def __init__(self, repo: Path):
-        self.repo = Path(repo)
-        self.calls: list[tuple] = []
-
-    def resolve(self, repository_url: str, requested_ref: str) -> str:
-        self.calls.append(("resolve", repository_url, requested_ref))
-        return git(self.repo, "rev-parse", f"{requested_ref}^{{commit}}")
-
-    def fetch(self, repository_url: str, commit: str, destination: Path) -> None:
-        self.calls.append(("fetch", repository_url, commit))
-        dest = Path(destination)
-        subprocess.run(
-            ["git", "clone", "--quiet", str(self.repo), str(dest)],
-            check=True,
-            capture_output=True,
-        )
-        git(dest, "checkout", "--quiet", "--detach", commit)
-        shutil.rmtree(dest / ".git")
+LOCAL_TRANSPORT_CONFIG = {
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "protocol.file.allow",
+    "GIT_CONFIG_VALUE_0": "always",
+}
 
 
 @contextlib.contextmanager
-def simulated_github(fake: FakeGitHub):
-    with mock.patch.object(operations, "resolve_remote_ref", fake.resolve), \
-            mock.patch.object(operations, "fetch_upstream_tree", fake.fetch):
-        yield
+def local_upstream(repo: Path):
+    """Executa as operações contra o repositório Git temporário `repo`.
+
+    Só o hook `operations._remote_url` é substituído (URL pública → caminho
+    local); clone, fetch, checkout, `.gitmodules` e gitlink são reais.
+    Devolve a lista de URLs pedidas ao hook, para provar quando uma
+    validação falha antes de qualquer acesso Git.
+    """
+    calls: list[str] = []
+
+    def remote_url(repository_url: str) -> str:
+        calls.append(repository_url)
+        return str(repo) if repository_url == REPOSITORY_URL else repository_url
+
+    with mock.patch.object(operations, "_remote_url", remote_url), \
+            mock.patch.dict(os.environ, LOCAL_TRANSPORT_CONFIG):
+        yield calls
 
 
 def conversion_inputs(**overrides) -> ConversionInputs:
@@ -138,7 +140,8 @@ def update_inputs(**overrides) -> UpdateInputs:
 
 def make_repo_root(tmp: Path) -> Path:
     root = Path(tmp) / "repo"
-    root.mkdir()
+    root.mkdir(parents=True)
+    git(root, "init", "-q")
     return root
 
 
@@ -231,10 +234,9 @@ class ConvertOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            sha = fake.resolve(REPOSITORY_URL, "v1.0.0")
-            with simulated_github(fake):
+            with local_upstream(upstream):
+                sha = operations.resolve_remote_ref(REPOSITORY_URL, "v1.0.0")
                 result = run_conversion(
                     root, conversion_inputs(plugin_id="fixture-plugin")
                 )
@@ -247,8 +249,30 @@ class ConvertOperationTests(unittest.TestCase):
             self.assertTrue((plugin_dir / "gateway.json").is_file())
             self.assertTrue((plugin_dir / "kimi.plugin.json").is_file())
             self.assertTrue((plugin_dir / "overlays").is_dir())
-            self.assertFalse((plugin_dir / "upstream" / ".git").exists())
             self.assertTrue((plugin_dir / "upstream" / MANIFEST_PATH).is_file())
+
+            # upstream persistido é submódulo real: gitfile, HEAD destacado no
+            # SHA resolvido, .gitmodules com URL pública e gitlink 160000
+            self.assertTrue(
+                (plugin_dir / "upstream" / ".git")
+                .read_text(encoding="utf-8")
+                .startswith("gitdir:")
+            )
+            self.assertEqual(
+                git(plugin_dir / "upstream", "rev-parse", "HEAD"), sha
+            )
+            self.assertEqual(
+                git(plugin_dir / "upstream", "rev-parse", "--abbrev-ref", "HEAD"),
+                "HEAD",
+            )
+            gitmodules = (root / ".gitmodules").read_text(encoding="utf-8")
+            self.assertIn("path = plugins/fixture-plugin/upstream", gitmodules)
+            self.assertIn(f"url = {REPOSITORY_URL}", gitmodules)
+            gitlink = git(root, "ls-files", "-s", "plugins/fixture-plugin/upstream")
+            self.assertTrue(
+                gitlink.startswith(f"160000 {sha} "),
+                f"gitlink deve ser mode 160000 em {sha}: {gitlink!r}",
+            )
 
             config = load_config(plugin_dir / "gateway.json")
             self.assertEqual(config.upstream_url, REPOSITORY_URL)
@@ -286,7 +310,7 @@ class ConvertOperationTests(unittest.TestCase):
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
             root = make_repo_root(tmp)
-            with simulated_github(FakeGitHub(upstream)):
+            with local_upstream(upstream):
                 plugin_dir = convert_plugin(
                     root, conversion_inputs(plugin_id="fixture-plugin")
                 )
@@ -298,7 +322,7 @@ class ConvertOperationTests(unittest.TestCase):
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
             root = make_repo_root(tmp)
-            with simulated_github(FakeGitHub(upstream)):
+            with local_upstream(upstream):
                 result = run_conversion(root, conversion_inputs())
             self.assertEqual(result.plugin_id, "fixture-plugin")
             self.assertTrue(
@@ -312,7 +336,7 @@ class ConvertOperationTests(unittest.TestCase):
                 tmp, [("v1.0.0", "1.0.0")], manifest_path="plugin.json"
             )
             root = make_repo_root(tmp)
-            with simulated_github(FakeGitHub(upstream)):
+            with local_upstream(upstream):
                 result = run_conversion(
                     root, conversion_inputs(manifest_path="plugin.json")
                 )
@@ -323,17 +347,16 @@ class ConvertOperationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream) as calls:
                 run_conversion(root, conversion_inputs(plugin_id="fixture-plugin"))
-                fake.calls.clear()
+                calls.clear()
                 with self.assertRaises(OperationError) as ctx:
                     run_conversion(
                         root, conversion_inputs(plugin_id="fixture-plugin")
                     )
         self.assertIn("fixture-plugin", str(ctx.exception))
-        self.assertEqual(fake.calls, [])
+        self.assertEqual(calls, [])
 
     def test_convert_rejects_dangerous_refs_before_any_git_call(self):
         for ref in DANGEROUS_REFS:
@@ -341,22 +364,20 @@ class ConvertOperationTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as tmp:
                     tmp = Path(tmp)
                     upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
-                    fake = FakeGitHub(upstream)
                     root = make_repo_root(tmp)
-                    with simulated_github(fake):
+                    with local_upstream(upstream) as calls:
                         with self.assertRaises((OperationError, ValueError)):
                             run_conversion(
                                 root, conversion_inputs(requested_ref=ref)
                             )
-                    self.assertEqual(fake.calls, [])
+                    self.assertEqual(calls, [])
 
     def test_convert_rejects_invalid_repository_url(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream) as calls:
                 with self.assertRaises(ValueError):
                     run_conversion(
                         root,
@@ -364,18 +385,34 @@ class ConvertOperationTests(unittest.TestCase):
                             repository_url="https://example.com/x/y"
                         ),
                     )
-            self.assertEqual(fake.calls, [])
+            self.assertEqual(calls, [])
+
+    def test_convert_failure_undoes_partial_submodule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
+            root = make_repo_root(tmp)
+            # git com lock pendurado: o submodule add clona e só então falha,
+            # deixando registro parcial para o cleanup da conversão desfazer
+            (root / ".git" / "index.lock").write_text("", encoding="utf-8")
+            with local_upstream(upstream):
+                with self.assertRaises(OperationError):
+                    run_conversion(
+                        root, conversion_inputs(plugin_id="fixture-plugin")
+                    )
+            self.assertFalse((root / "plugins" / "fixture-plugin").exists())
+            self.assertEqual(git(root, "ls-files"), "")
+            self.assertFalse((root / ".gitmodules").exists())
 
     def test_convert_result_report_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             upstream = make_upstream(tmp, [("v1.0.0", "1.0.0")])
-            root = make_repo_root(tmp)
-            with simulated_github(FakeGitHub(upstream)):
-                first = run_conversion(root, conversion_inputs())
-            shutil.rmtree(root / "plugins")
-            with simulated_github(FakeGitHub(upstream)):
-                second = run_conversion(root, conversion_inputs())
+            root_first = make_repo_root(tmp / "first")
+            root_second = make_repo_root(tmp / "second")
+            with local_upstream(upstream):
+                first = run_conversion(root_first, conversion_inputs())
+                second = run_conversion(root_second, conversion_inputs())
         self.assertEqual(first.report, second.report)
         self.assertEqual(first.tag, second.tag)
 
@@ -388,9 +425,8 @@ class UpdateOperationTests(unittest.TestCase):
         self.upstream = make_upstream(
             tmp, [("v1.0.0", "1.0.0"), ("v1.1.0", "1.1.0")]
         )
-        self.fake = FakeGitHub(self.upstream)
         self.root = make_repo_root(tmp)
-        with simulated_github(self.fake):
+        with local_upstream(self.upstream):
             self.initial = run_conversion(
                 self.root, conversion_inputs(plugin_id="fixture-plugin")
             )
@@ -401,7 +437,7 @@ class UpdateOperationTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def update(self, ref: str):
-        with simulated_github(self.fake):
+        with local_upstream(self.upstream):
             return run_update(self.root, update_inputs(requested_ref=ref))
 
     def test_update_moves_ref_commit_and_version(self):
@@ -418,6 +454,68 @@ class UpdateOperationTests(unittest.TestCase):
         self.assertTrue(
             (self.plugin_dir / "upstream" / MANIFEST_PATH).is_file()
         )
+        # o submódulo movido de verdade: HEAD no novo SHA, gitlink do índice
+        # ainda no SHA antigo para o workflow stagear
+        self.assertEqual(
+            git(self.plugin_dir / "upstream", "rev-parse", "HEAD"), result.commit
+        )
+        gitlink = git(self.root, "ls-files", "-s", "plugins/fixture-plugin/upstream")
+        self.assertTrue(
+            gitlink.startswith(f"160000 {self.first_sha} "),
+            f"gitlink do índice deve permanecer no SHA antigo: {gitlink!r}",
+        )
+        porcelain = git(self.root, "status", "--porcelain")
+        self.assertTrue(
+            any(
+                line.endswith("plugins/fixture-plugin/upstream")
+                for line in porcelain.splitlines()
+            ),
+            f"submódulo movido deve aparecer como modificado: {porcelain!r}",
+        )
+
+    def test_update_gitlink_aguardando_stage_grava_novo_sha_no_workflow(self):
+        result = self.update("v1.1.0")
+        git(self.root, "add", "-A")
+        git(
+            self.root,
+            "-c", "user.name=Gateway Tests",
+            "-c", "user.email=tests@example.com",
+            "commit", "-q", "-m", "atualização fixture-plugin",
+        )
+        entry = git(
+            self.root, "ls-tree", "HEAD", "plugins/fixture-plugin/upstream"
+        )
+        self.assertTrue(
+            entry.startswith(f"160000 commit {result.commit}\t"),
+            f"árvore commitada pelo workflow deve registrar o novo SHA: {entry!r}",
+        )
+
+    def test_update_refuses_plain_directory_upstream(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            upstream = make_upstream(
+                tmp, [("v1.0.0", "1.0.0"), ("v1.1.0", "1.1.0")]
+            )
+            root = make_repo_root(tmp)
+            with local_upstream(upstream):
+                initial = run_conversion(
+                    root, conversion_inputs(plugin_id="fixture-plugin")
+                )
+            upstream_dir = initial.plugin_dir / "upstream"
+            vendored = tmp / "vendored"
+            shutil.copytree(upstream_dir, vendored)
+            (vendored / ".git").unlink()
+            shutil.rmtree(upstream_dir)
+            shutil.move(str(vendored), str(upstream_dir))
+            self.assertFalse((upstream_dir / ".git").exists())
+
+            with local_upstream(upstream):
+                with self.assertRaises(OperationError) as ctx:
+                    run_update(root, update_inputs(requested_ref="v1.1.0"))
+            self.assertIn("submódulo", str(ctx.exception))
+            config = load_config(initial.plugin_dir / "gateway.json")
+            self.assertEqual(config.commit, initial.commit)
+            self.assertTrue((upstream_dir / MANIFEST_PATH).is_file())
 
     def test_update_never_changes_the_registered_url(self):
         self.update("v1.1.0")
@@ -463,9 +561,8 @@ class UpdateOperationTests(unittest.TestCase):
             upstream = make_upstream(
                 tmp, [("v1.0.0", "1.0.0"), ("v1.0.1", "1.0.0")]
             )
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 run_conversion(root, conversion_inputs(plugin_id="fixture-plugin"))
                 result = run_update(root, update_inputs(requested_ref="v1.0.1"))
             config = load_config(root / "plugins" / "fixture-plugin" / "gateway.json")
@@ -489,9 +586,8 @@ class UpdateOperationTests(unittest.TestCase):
                 [("v1.0.0", "1.0.0"), ("v2.0.0", "2.0.0")],
                 drop_skills_from=1,
             )
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 run_conversion(root, conversion_inputs(plugin_id="fixture-plugin"))
                 result = run_update(root, update_inputs(requested_ref="v2.0.0"))
             self.assertTrue(
@@ -506,26 +602,33 @@ class UpdateOperationTests(unittest.TestCase):
                 [("v1.0.0", "1.0.0"), ("v2.0.0", "2.0.0")],
                 drop_skills_from=1,
             )
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 initial = run_conversion(
                     root, conversion_inputs(plugin_id="fixture-plugin")
                 )
             overlay = initial.plugin_dir / "overlays" / ".claude" / "skills" / "fixture"
             overlay.mkdir(parents=True)
             (overlay / "SKILL.md").write_text("# overlay humano\n", encoding="utf-8")
-            with simulated_github(fake):
+            with local_upstream(upstream) as calls:
+                calls.clear()
                 with self.assertRaises(OperationError) as ctx:
                     run_update(root, update_inputs(requested_ref="v2.0.0"))
             self.assertIn(".claude/skills/fixture/SKILL.md", str(ctx.exception))
             self.assertIn("PR manual", str(ctx.exception))
-            # upstream vivo e config intactos: a atualização não concluiu
+            # upstream vivo, gitlink antigo e config intactos: a atualização
+            # foi bloqueada antes de qualquer mutação no submódulo
             self.assertTrue((overlay / "SKILL.md").is_file())
             self.assertTrue(
                 (initial.plugin_dir / "upstream" / ".claude" / "skills" / "fixture" / "SKILL.md")
                 .is_file()
             )
+            gitlink = git(root, "ls-files", "-s", "plugins/fixture-plugin/upstream")
+            self.assertTrue(
+                gitlink.startswith(f"160000 {initial.commit} "),
+                f"gitlink não deve mudar quando o update é bloqueado: {gitlink!r}",
+            )
+            self.assertNotEqual(calls, [])
             config = load_config(initial.plugin_dir / "gateway.json")
             self.assertEqual(config.commit, initial.commit)
             self.assertEqual(config.source_version, "1.0.0")
@@ -536,16 +639,15 @@ class UpdateOperationTests(unittest.TestCase):
             upstream = make_upstream(
                 tmp, [("v1.0.0", "1.0.0"), ("v1.1.0", "1.1.0")]
             )
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 initial = run_conversion(
                     root, conversion_inputs(plugin_id="fixture-plugin")
                 )
             overlay = initial.plugin_dir / "overlays" / "docs" / "extra.md"
             overlay.parent.mkdir(parents=True)
             overlay.write_text("# overlay aditivo novo\n", encoding="utf-8")
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 result = run_update(root, update_inputs(requested_ref="v1.1.0"))
             self.assertTrue(overlay.is_file())
             self.assertTrue(any("docs/extra.md" in e for e in result.report))
@@ -558,9 +660,8 @@ class UpdateOperationTests(unittest.TestCase):
             upstream = make_upstream(
                 tmp, [("v1.0.0", "1.0.0"), ("v2.0.0", "2.0.0")]
             )
-            fake = FakeGitHub(upstream)
             root = make_repo_root(tmp)
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 initial = run_conversion(
                     root, conversion_inputs(plugin_id="fixture-plugin")
                 )
@@ -572,18 +673,18 @@ class UpdateOperationTests(unittest.TestCase):
             gateway["overlays"] = {"remove": ["bin/legacy.sh"]}
             write_json(gateway_path, gateway)
 
-            with simulated_github(fake):
+            with local_upstream(upstream):
                 with self.assertRaises(OperationError) as ctx:
                     run_update(root, update_inputs(requested_ref="v2.0.0"))
             self.assertIn("bin/legacy.sh", str(ctx.exception))
-            # nada foi substituído: o alvo continua no upstream vivo
+            # nada foi substituído: o alvo continua no submódulo vivo
             self.assertTrue(legacy.is_file())
             config = load_config(gateway_path)
             self.assertEqual(config.commit, initial.commit)
             self.assertEqual(config.remove_paths, ["bin/legacy.sh"])
 
     def test_update_unknown_plugin_fails(self):
-        with simulated_github(self.fake):
+        with local_upstream(self.upstream):
             with self.assertRaises(OperationError):
                 run_update(
                     self.root, update_inputs(plugin_id="plugin-inexistente")
@@ -592,14 +693,13 @@ class UpdateOperationTests(unittest.TestCase):
     def test_update_rejects_dangerous_refs_before_any_git_call(self):
         for ref in DANGEROUS_REFS:
             with self.subTest(ref=ref):
-                self.fake.calls.clear()
-                with simulated_github(self.fake):
+                with local_upstream(self.upstream) as calls:
                     with self.assertRaises((OperationError, ValueError)):
                         run_update(self.root, update_inputs(requested_ref=ref))
-                self.assertEqual(self.fake.calls, [])
+                self.assertEqual(calls, [])
 
     def test_update_plugin_returns_plugin_dir(self):
-        with simulated_github(self.fake):
+        with local_upstream(self.upstream):
             plugin_dir = update_plugin(self.root, update_inputs())
         self.assertEqual(plugin_dir, self.root / "plugins" / "fixture-plugin")
         config = load_config(plugin_dir / "gateway.json")

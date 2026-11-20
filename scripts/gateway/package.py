@@ -146,7 +146,7 @@ def _validate_zip(zip_path: Path) -> list[str]:
                     f"pacote com caminho inseguro no ZIP: {name!r} "
                     "(':' não é permitido em nomes de entrada)"
                 )
-            parts = name.split("/")
+            parts = normalized.split("/")
             if ".git" in parts:
                 raise ValidationError(
                     f"pacote contém '.git' no ZIP: {name!r}"
