@@ -22,5 +22,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Fixed
 
 - Made Git test fixtures independent of machine-specific author configuration so annotated-tag tests also pass on clean CI runners.
+- Provided the workflow token to GitHub CLI commands used by IssueOps and plugin releases, fixing release publication on GitHub Actions.
 
 [Unreleased]: https://github.com/endersonmenezes/kimi-plugin-gateway/compare/main...HEAD

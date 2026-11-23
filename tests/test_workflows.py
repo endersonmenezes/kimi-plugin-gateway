@@ -121,6 +121,11 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
                 self.assertIn("pull-requests: write", text)
                 self.assertIn("issues: write", text)
 
+    def test_gh_recebe_token_do_workflow(self):
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertIn("GH_TOKEN: ${{ github.token }}", text)
+
     def test_blocos_run_sem_interpolacao_de_contexto(self):
         for name, text in self.texts.items():
             with self.subTest(workflow=name):
@@ -232,6 +237,9 @@ class ReleaseWorkflowStaticTests(unittest.TestCase):
         self.assertIn("contents: write", self.text)
         self.assertNotIn("pull-requests: write", self.text)
         self.assertNotIn("issues: write", self.text)
+
+    def test_gh_recebe_token_do_workflow(self):
+        self.assertIn("GH_TOKEN: ${{ github.token }}", self.text)
 
     def test_checkout_recursivo_e_run_sem_interpolacao(self):
         checkouts = self.text.count("uses: actions/checkout@")

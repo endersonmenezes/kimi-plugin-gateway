@@ -15,6 +15,7 @@ permissions:
 
 env:
   PYTHONPATH: scripts
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   select:
