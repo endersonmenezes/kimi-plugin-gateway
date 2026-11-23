@@ -38,7 +38,7 @@ meu-plugin
 
 .claude-plugin/plugin.json
 
-### Observações sobre adaptações necessárias (opcional)
+### Adaptation notes (optional)
 
 Revisar hooks antes de ativar.
 """

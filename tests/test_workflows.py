@@ -251,7 +251,7 @@ class ReleaseWorkflowStaticTests(unittest.TestCase):
     def test_verificacao_previa_de_tag_e_asset_existente(self):
         self.assertIn("gh release view", self.text)
         self.assertIn("ls-remote --tags", self.text)
-        self.assertIn("imutá", self.text)
+        self.assertIn("immutab", self.text)
 
     def test_release_e_upload_sem_flags_de_substituicao(self):
         self.assertIn("gh release create", self.text)
@@ -280,6 +280,19 @@ class IssueTemplateStaticTests(unittest.TestCase):
         for title in UPDATE_FIELD_TITLES:
             with self.subTest(campo=title):
                 self.assertIn(f"label: {title}", text)
+
+
+class WorkflowIssueFieldConsistencyTests(unittest.TestCase):
+    def test_workflows_use_the_same_field_titles_as_templates(self):
+        cases = (
+            ("convert-plugin.yml", (CONVERT_FIELD_TITLES[0], CONVERT_FIELD_TITLES[2])),
+            ("update-plugin.yml", (UPDATE_FIELD_TITLES[0],)),
+        )
+        for filename, titles in cases:
+            text = read(WORKFLOWS / filename)
+            for title in titles:
+                with self.subTest(workflow=filename, field=title):
+                    self.assertIn(f'"{title}"', text)
 
 
 class CodeownersStaticTests(unittest.TestCase):

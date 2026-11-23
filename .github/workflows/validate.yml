@@ -1,4 +1,4 @@
-name: Validação de PR
+name: Pull Request Validation
 
 on:
   pull_request:
@@ -13,33 +13,33 @@ env:
 
 jobs:
   testes:
-    name: Rodar suíte completa de testes
+    name: Run the complete test suite
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Executar unittest completo
+      - name: Run complete unittest suite
         run: |
           set -euo pipefail
           python3 -m unittest discover -s tests -v
 
   pacotes:
-    name: Validar e construir todos os pacotes
+    name: Validate and build all packages
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Validar e empacotar cada plugin sem publicar
+      - name: Validate and package each plugin without publishing
         run: |
           set -euo pipefail
           shopt -s nullglob
           configs=(plugins/*/gateway.json)
           if [ "${#configs[@]}" -eq 0 ]; then
-            echo "nenhum plugin convertido ainda; nada a validar"
+            echo "no converted plugins yet; nothing to validate"
             exit 0
           fi
           for config in "${configs[@]}"; do
@@ -49,4 +49,4 @@ jobs:
             python3 -m gateway package --plugin-id "$plugin_id" --repo-root . \
               --output-dir "$RUNNER_TEMP/dist"
           done
-          echo "todos os pacotes construídos localmente em $RUNNER_TEMP/dist"
+          echo "all packages built locally in $RUNNER_TEMP/dist"

@@ -1,4 +1,4 @@
-name: Release dos plugins alterados
+name: Release Changed Plugins
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       plugin-id:
-        description: Id do plugin a republicar (retry sem alterar metadados)
+        description: Plugin ID to release again without changing metadata
         required: true
         type: string
 
@@ -18,7 +18,7 @@ env:
 
 jobs:
   select:
-    name: Selecionar plugins desta execução
+    name: Select plugins for this run
     runs-on: ubuntu-latest
     outputs:
       plugins: ${{ steps.select.outputs.plugins }}
@@ -28,7 +28,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Calcular plugins do push ou do dispatch
+      - name: Calculate plugins from push or dispatch
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -53,11 +53,11 @@ jobs:
               --event-path "$EVENT_PATH" --repo-root . \
               | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)["plugins"]))')"
           fi
-          echo "plugins selecionados: $plugins"
+          echo "selected plugins: $plugins"
           echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
 
   release:
-    name: Publicar release do plugin
+    name: Publish plugin release
     needs: select
     if: needs.select.outputs.plugins != '[]'
     runs-on: ubuntu-latest
@@ -75,7 +75,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Validar plugin e construir pacote
+      - name: Validate plugin and build package
         run: |
           set -euo pipefail
           python3 -m gateway validate --plugin-id "$PLUGIN_ID" --repo-root .
@@ -84,13 +84,13 @@ jobs:
           printf '%s\n' "$package_output"
           sha256="$(printf '%s\n' "$package_output" | awk -F': ' '/^sha256: /{print $2; exit}')"
           if [ -z "$sha256" ]; then
-            echo "o CLI não reportou o sha256 do pacote" >&2
+            echo "the CLI did not report the package SHA-256" >&2
             exit 1
           fi
           printf '%s  %s.zip\n' "$sha256" "$PLUGIN_ID" \
             > "$RUNNER_TEMP/dist/$PLUGIN_ID.zip.sha256"
 
-      - name: Calcular tag determinística
+      - name: Calculate deterministic tag
         id: meta
         run: |
           set -euo pipefail
@@ -106,32 +106,32 @@ jobs:
           print(release_tag(load_config(plugin_dir / "gateway.json")))
           PY
           )"
-          echo "tag da release: $TAG"
+          echo "release tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Conferir imutabilidade da tag e dos assets
+      - name: Check tag and asset immutability
         env:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
-            echo "a tag '$TAG' já existe; tags e releases são imutáveis" >&2
+            echo "tag '$TAG' already exists; tags and releases are immutable" >&2
             exit 1
           fi
           if gh release view "$TAG" --repo "$GATEWAY_REPO" > /dev/null 2>&1; then
-            echo "a release '$TAG' já existe; falhando em vez de substituí-la" >&2
+            echo "release '$TAG' already exists; failing instead of replacing it" >&2
             exit 1
           fi
 
-      - name: Criar release e publicar assets sem substituição
+      - name: Create release and upload assets without replacement
         env:
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
           {
-            printf 'Plugin `%s` publicado pelo Kimi Plugin Gateway.\n\n' "$PLUGIN_ID"
-            printf 'Procedência: confira `gateway-source.json` dentro do ZIP e os metadados em `plugins/%s/gateway.json` na branch `main`.\n' "$PLUGIN_ID"
-            printf 'Tag e assets são imutáveis: reexecuções falham em vez de substituí-los.\n'
+            printf 'Plugin `%s` published by Kimi Plugin Gateway.\n\n' "$PLUGIN_ID"
+            printf 'Provenance: see `gateway-source.json` inside the ZIP and metadata in `plugins/%s/gateway.json` on the `main` branch.\n' "$PLUGIN_ID"
+            printf 'Tags and assets are immutable: retries fail instead of replacing them.\n'
           } > "$RUNNER_TEMP/release-notes.md"
           gh release create "$TAG" --repo "$GATEWAY_REPO" \
             --title "$TAG" --target main \

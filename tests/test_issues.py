@@ -27,7 +27,7 @@ _No response_
 
 .claude-plugin/plugin.json
 
-### Observações sobre adaptações necessárias (opcional)
+### Adaptation notes (optional)
 
 Revisar hooks antes de ativar.
 Manter a licença original.
@@ -44,7 +44,7 @@ class ParseIssueFormTests(unittest.TestCase):
                 "Source tag, branch, or commit",
                 "Desired Gateway plugin ID (optional)",
                 "Claude manifest path",
-                "Observações sobre adaptações necessárias (opcional)",
+                "Adaptation notes (optional)",
             ],
         )
 
@@ -68,7 +68,7 @@ class ParseIssueFormTests(unittest.TestCase):
     def test_multiline_block_is_preserved(self):
         fields = parse_issue_form(CONVERT_BODY)
         self.assertEqual(
-            fields["Observações sobre adaptações necessárias (opcional)"],
+            fields["Adaptation notes (optional)"],
             "Revisar hooks antes de ativar.\nManter a licença original.",
         )
 
