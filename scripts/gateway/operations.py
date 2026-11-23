@@ -177,8 +177,8 @@ def resolve_remote_ref(repository_url: str, requested_ref: str) -> str:
             resolved = sha
     if resolved is None:
         raise OperationError(
-            f"ref {ref!r} não encontrado em {repository_url}; confira a "
-            "tag, branch ou commit informado na Issue"
+            f"ref {ref!r} not found in {repository_url}; check the tag, "
+            "branch, or commit provided in the issue"
         )
     return resolved
 

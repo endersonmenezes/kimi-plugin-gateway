@@ -257,7 +257,9 @@ class UpdateIssueEventTests(unittest.TestCase):
                 "update", "--issue-event", str(event), "--repo-root", tmp,
             ])
             self.assertEqual(code, INPUT_ERROR_EXIT)
-            self.assertIn("Gateway plugin ID", err)
+            self.assertIn(
+                "required field 'Gateway plugin ID' is missing or empty", err
+            )
 
     def test_plugin_inexistente_e_rejeitado_antes_de_qualquer_rede(self):
         with tempfile.TemporaryDirectory() as tmp:

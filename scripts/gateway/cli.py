@@ -264,8 +264,8 @@ def _required_issue_field(fields: dict[str, str], title: str) -> str:
     value = fields.get(title, "").strip()
     if not value:
         raise _InputError(
-            f"campo '{title}' ausente ou vazio na Issue; preencha o "
-            "formulário e repita a operação"
+            f"required field '{title}' is missing or empty in the issue; "
+            "complete the form and retry the operation"
         )
     return value
 

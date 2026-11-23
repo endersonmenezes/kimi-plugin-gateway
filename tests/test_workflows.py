@@ -126,6 +126,15 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertIn("GH_TOKEN: ${{ github.token }}", text)
 
+    def test_dispatch_confirma_rotulo_antes_de_executar_cli(self):
+        for name, text in self.texts.items():
+            label = self.label_by_workflow[name]
+            with self.subTest(workflow=name):
+                self.assertIn('"number,body,labels"', text)
+                self.assertGreaterEqual(
+                    text.count(f'if "{label}" not in labels:'), 2
+                )
+
     def test_blocos_run_sem_interpolacao_de_contexto(self):
         for name, text in self.texts.items():
             with self.subTest(workflow=name):

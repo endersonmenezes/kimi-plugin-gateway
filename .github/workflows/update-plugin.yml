@@ -75,10 +75,18 @@ jobs:
                   sys.exit(0)
 
           payload = subprocess.run(
-              ["gh", "issue", "view", number, "--json", "number,body"],
+              ["gh", "issue", "view", number, "--json", "number,body,labels"],
               check=True, capture_output=True, text=True,
           ).stdout
-          body = json.loads(payload).get("body") or ""
+          issue_data = json.loads(payload)
+          if event_name == "workflow_dispatch":
+              labels = {str(label.get("name")) for label in issue_data.get("labels") or []}
+              if "update" not in labels:
+                  print("Issue does not have the 'update' label; nothing to do.")
+                  emit("skip", "true")
+                  emit("issue-number", number)
+                  sys.exit(0)
+          body = issue_data.get("body") or ""
           fields = parse_issue_form(body)
           raw_id = fields.get("Gateway plugin ID", "").strip()
           try:

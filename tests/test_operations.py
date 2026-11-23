@@ -224,8 +224,10 @@ class ResolveRemoteRefTests(unittest.TestCase):
         self.assertEqual(self.resolve(self.commit), self.commit)
 
     def test_ref_inexistente_e_erro(self):
-        with self.assertRaises(OperationError):
+        with self.assertRaises(OperationError) as ctx:
             self.resolve("nao-existe")
+        self.assertIn("ref 'nao-existe' not found in", str(ctx.exception))
+        self.assertIn("check the tag, branch, or commit", str(ctx.exception))
 
 
 @unittest.skipIf(shutil.which("git") is None, "git não disponível")
