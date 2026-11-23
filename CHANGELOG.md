@@ -27,5 +27,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Translated source-resolution, duplicate-ID, and required-field errors exposed by IssueOps to English.
 - Made conversion retries remove the empty plugin directory left after deleting a submodule from an existing IssueOps branch.
 - Prevented IssueOps retries from failing with `nothing to commit` when recreating identical plugin content.
+- Explicitly dispatched pull request validation after IssueOps creates or updates a PR with the Actions token, whose PR events do not trigger new workflow runs automatically.
 
 [Unreleased]: https://github.com/endersonmenezes/kimi-plugin-gateway/compare/main...HEAD

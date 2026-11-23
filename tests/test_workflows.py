@@ -27,8 +27,7 @@ TEMPLATES = GITHUB / "ISSUE_TEMPLATE"
 
 ISSUEOPS_WORKFLOWS = ("convert-plugin.yml", "update-plugin.yml")
 
-FORBIDDEN_SCOPES = ("id-token", "actions:", "packages:",
-                    "deployments:", "pages:")
+FORBIDDEN_SCOPES = ("id-token", "packages:", "deployments:", "pages:")
 
 CONVERT_FIELD_TITLES = (
     "Public GitHub repository URL",
@@ -146,6 +145,12 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
                 self.assertIn("git add -A", text)
                 self.assertIn("git diff --cached --quiet", text)
 
+    def test_dispara_validacao_da_branch_apos_criar_ou_atualizar_pr(self):
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertIn("actions: write", text)
+                self.assertIn('gh workflow run validate.yml --ref "$branch"', text)
+
     def test_blocos_run_sem_interpolacao_de_contexto(self):
         for name, text in self.texts.items():
             with self.subTest(workflow=name):
@@ -160,7 +165,10 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 self.assertIn('--issue-event "$EVENT_PATH"', text)
                 self.assertNotIn("--repository-url", text)
-                self.assertNotIn("--ref ", text)
+                operation = "convert" if name == "convert-plugin.yml" else "update"
+                for block in run_blocks(text):
+                    if f"python3 -m gateway {operation}" in block:
+                        self.assertNotIn("--ref ", block)
                 for line in text.splitlines():
                     if "--plugin-id" in line:
                         self.assertIn(
@@ -257,6 +265,7 @@ class ReleaseWorkflowStaticTests(unittest.TestCase):
         self.assertIn("contents: write", self.text)
         self.assertNotIn("pull-requests: write", self.text)
         self.assertNotIn("issues: write", self.text)
+        self.assertNotIn("actions: write", self.text)
 
     def test_gh_recebe_token_do_workflow(self):
         self.assertIn("GH_TOKEN: ${{ github.token }}", self.text)

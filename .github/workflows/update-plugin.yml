@@ -110,6 +110,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      actions: write
     env:
       ISSUE_NUMBER: ${{ needs.prepare.outputs.issue-number }}
       GATEWAY_REPO: ${{ github.repository }}
@@ -251,6 +252,7 @@ jobs:
               --title "feat: update plugin ${PLUGIN_ID} (issue #${ISSUE_NUMBER})" \
               --body-file "$RUNNER_TEMP/pr-body.md"
           fi
+          gh workflow run validate.yml --ref "$branch"
 
       - name: Comment error on issue
         if: failure()
