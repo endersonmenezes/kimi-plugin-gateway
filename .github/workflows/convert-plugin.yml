@@ -171,6 +171,7 @@ jobs:
             suffix="${branch#issueops/issue-${ISSUE_NUMBER}-}"
             if [ "$suffix" != "$branch" ] && [ -e "plugins/${suffix}" ]; then
               git rm -rf --quiet "plugins/${suffix}"
+              rmdir "plugins/${suffix}" 2>/dev/null || true
             fi
           else
             git checkout -b "issueops/issue-${ISSUE_NUMBER}-pending"

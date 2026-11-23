@@ -135,6 +135,11 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
                     text.count(f'if "{label}" not in labels:'), 2
                 )
 
+    def test_retry_remove_diretorio_vazio_deixado_pelo_submodulo(self):
+        text = self.texts["convert-plugin.yml"]
+        self.assertIn('git rm -rf --quiet "plugins/${suffix}"', text)
+        self.assertIn('rmdir "plugins/${suffix}" 2>/dev/null || true', text)
+
     def test_blocos_run_sem_interpolacao_de_contexto(self):
         for name, text in self.texts.items():
             with self.subTest(workflow=name):

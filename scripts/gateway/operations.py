@@ -501,9 +501,9 @@ def _guard(name: str, value: str, validator) -> str:
 def _reject_existing_plugin(plugin_dir: Path) -> None:
     if plugin_dir.exists():
         raise OperationError(
-            f"id duplicado: {plugin_dir} já existe; a conversão só cria "
-            "plugins novos — para alterar um plugin existente use a Issue "
-            "de atualização"
+            f"duplicate ID: {plugin_dir} already exists; conversion only "
+            "creates new plugins — to change an existing plugin, use an "
+            "update issue"
         )
 
 

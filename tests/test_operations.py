@@ -358,6 +358,8 @@ class ConvertOperationTests(unittest.TestCase):
                         root, conversion_inputs(plugin_id="fixture-plugin")
                     )
         self.assertIn("fixture-plugin", str(ctx.exception))
+        self.assertIn("duplicate ID", str(ctx.exception))
+        self.assertIn("use an update issue", str(ctx.exception))
         self.assertEqual(calls, [])
 
     def test_convert_rejects_dangerous_refs_before_any_git_call(self):

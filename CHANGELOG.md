@@ -24,6 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Made Git test fixtures independent of machine-specific author configuration so annotated-tag tests also pass on clean CI runners.
 - Provided the workflow token to GitHub CLI commands used by IssueOps and plugin releases, fixing release publication on GitHub Actions.
 - Made manually dispatched IssueOps workflows verify the issue label before running conversion or update operations.
-- Translated source-resolution and required-field errors exposed by IssueOps to English.
+- Translated source-resolution, duplicate-ID, and required-field errors exposed by IssueOps to English.
+- Made conversion retries remove the empty plugin directory left after deleting a submodule from an existing IssueOps branch.
 
 [Unreleased]: https://github.com/endersonmenezes/kimi-plugin-gateway/compare/main...HEAD
