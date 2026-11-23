@@ -1,0 +1,141 @@
+name: Release Changed Plugins
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      plugin-id:
+        description: Plugin ID to release again without changing metadata
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  PYTHONPATH: scripts
+
+jobs:
+  select:
+    name: Select plugins for this run
+    runs-on: ubuntu-latest
+    outputs:
+      plugins: ${{ steps.select.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Calculate plugins from push or dispatch
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          DISPATCH_PLUGIN_ID: ${{ inputs.plugin-id }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            plugins="$(PLUGIN_ID="$DISPATCH_PLUGIN_ID" python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          sys.path.insert(0, "scripts")
+          from gateway.issues import validate_plugin_id
+
+          print(json.dumps([validate_plugin_id(os.environ["PLUGIN_ID"])]))
+          PY
+          )"
+          else
+            plugins="$(python3 -m gateway changed-plugins \
+              --event-path "$EVENT_PATH" --repo-root . \
+              | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)["plugins"]))')"
+          fi
+          echo "selected plugins: $plugins"
+          echo "plugins=$plugins" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Publish plugin release
+    needs: select
+    if: needs.select.outputs.plugins != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: ${{ fromJSON(needs.select.outputs.plugins) }}
+    env:
+      PLUGIN_ID: ${{ matrix.plugin }}
+      GATEWAY_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Validate plugin and build package
+        run: |
+          set -euo pipefail
+          python3 -m gateway validate --plugin-id "$PLUGIN_ID" --repo-root .
+          package_output="$(python3 -m gateway package --plugin-id "$PLUGIN_ID" \
+            --repo-root . --output-dir "$RUNNER_TEMP/dist")"
+          printf '%s\n' "$package_output"
+          sha256="$(printf '%s\n' "$package_output" | awk -F': ' '/^sha256: /{print $2; exit}')"
+          if [ -z "$sha256" ]; then
+            echo "the CLI did not report the package SHA-256" >&2
+            exit 1
+          fi
+          printf '%s  %s.zip\n' "$sha256" "$PLUGIN_ID" \
+            > "$RUNNER_TEMP/dist/$PLUGIN_ID.zip.sha256"
+
+      - name: Calculate deterministic tag
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="$(python3 - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, "scripts")
+          from gateway.config import load_config, release_tag
+
+          plugin_dir = Path("plugins") / os.environ["PLUGIN_ID"]
+          print(release_tag(load_config(plugin_dir / "gateway.json")))
+          PY
+          )"
+          echo "release tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag and asset immutability
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "tag '$TAG' already exists; tags and releases are immutable" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo "$GATEWAY_REPO" > /dev/null 2>&1; then
+            echo "release '$TAG' already exists; failing instead of replacing it" >&2
+            exit 1
+          fi
+
+      - name: Create release and upload assets without replacement
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          {
+            printf 'Plugin `%s` published by Kimi Plugin Gateway.\n\n' "$PLUGIN_ID"
+            printf 'Provenance: see `gateway-source.json` inside the ZIP and metadata in `plugins/%s/gateway.json` on the `main` branch.\n' "$PLUGIN_ID"
+            printf 'Tags and assets are immutable: retries fail instead of replacing them.\n'
+          } > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$TAG" --repo "$GATEWAY_REPO" \
+            --title "$TAG" --target main \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release upload "$TAG" --repo "$GATEWAY_REPO" \
+            "$RUNNER_TEMP/dist/$PLUGIN_ID.zip" \
+            "$RUNNER_TEMP/dist/$PLUGIN_ID.zip.sha256"

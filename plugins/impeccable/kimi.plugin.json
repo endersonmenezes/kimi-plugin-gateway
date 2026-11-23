@@ -1,0 +1,16 @@
+{
+  "agents": [
+    "./upstream/.claude/agents/"
+  ],
+  "author": {
+    "email": "paul@paulbakaus.com",
+    "name": "Paul Bakaus"
+  },
+  "description": "Design fluency for frontend development. 1 skill with 24 commands (/impeccable polish, /impeccable audit, /impeccable critique, etc.) and curated anti-pattern detection.",
+  "homepage": "https://impeccable.style",
+  "name": "impeccable",
+  "skills": [
+    "./upstream/.claude/skills/"
+  ],
+  "version": "4.10.0"
+}

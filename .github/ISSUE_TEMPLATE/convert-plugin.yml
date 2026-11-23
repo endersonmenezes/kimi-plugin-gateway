@@ -1,0 +1,50 @@
+name: Convert a Claude plugin
+description: Request conversion of a Claude plugin into an independently installable Kimi plugin
+title: "[conversion] <owner>/<repo>"
+labels: ["conversion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Complete this form to request a plugin conversion. The workflow validates
+        the inputs, converts the plugin, and opens a pull request linked to this
+        issue. Values are treated as data, never executed as commands. Invalid
+        requests receive an error comment on this issue.
+  - type: input
+    id: repository-url
+    attributes:
+      label: Public GitHub repository URL
+      description: "Public GitHub repositories only, for example https://github.com/<owner>/<repo>"
+      placeholder: "https://github.com/owner/repo"
+    validations:
+      required: true
+  - type: input
+    id: requested-ref
+    attributes:
+      label: Source tag, branch, or commit
+      description: "A tag (for example v1.2.0), branch, or full upstream commit SHA; the workflow resolves it to a full commit before the pull request"
+      placeholder: "v1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: plugin-id
+    attributes:
+      label: Desired Gateway plugin ID (optional)
+      description: "A valid Kimi plugin ID such as my-plugin; leave empty to use the upstream manifest name"
+    validations:
+      required: false
+  - type: input
+    id: manifest-path
+    attributes:
+      label: Claude manifest path
+      description: "Relative path to .claude-plugin/plugin.json inside the upstream repository"
+      value: ".claude-plugin/plugin.json"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Adaptation notes (optional)
+      description: "Context for reviewers: capabilities to adapt, hooks, MCP servers, Claude-specific instructions, or other compatibility concerns"
+    validations:
+      required: false
