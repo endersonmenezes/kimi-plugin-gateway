@@ -140,6 +140,12 @@ class IssueOpsWorkflowStaticTests(unittest.TestCase):
         self.assertIn('git rm -rf --quiet "plugins/${suffix}"', text)
         self.assertIn('rmdir "plugins/${suffix}" 2>/dev/null || true', text)
 
+    def test_commit_somente_quando_existe_diff_staged(self):
+        for name, text in self.texts.items():
+            with self.subTest(workflow=name):
+                self.assertIn("git add -A", text)
+                self.assertIn("git diff --cached --quiet", text)
+
     def test_blocos_run_sem_interpolacao_de_contexto(self):
         for name, text in self.texts.items():
             with self.subTest(workflow=name):

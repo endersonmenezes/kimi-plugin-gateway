@@ -231,10 +231,10 @@ jobs:
             } | tee "$RUNNER_TEMP/update-error.txt" >&2
             exit 1
           fi
-          if [ -z "$(git status --porcelain)" ]; then
+          git add -A
+          if git diff --cached --quiet; then
             echo "branch already reflects the update; nothing to commit"
           else
-            git add -A
             git commit -m "feat: update plugin ${PLUGIN_ID} (issue #${ISSUE_NUMBER})"
           fi
           git push origin "$branch"

@@ -26,5 +26,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Made manually dispatched IssueOps workflows verify the issue label before running conversion or update operations.
 - Translated source-resolution, duplicate-ID, and required-field errors exposed by IssueOps to English.
 - Made conversion retries remove the empty plugin directory left after deleting a submodule from an existing IssueOps branch.
+- Prevented IssueOps retries from failing with `nothing to commit` when recreating identical plugin content.
 
 [Unreleased]: https://github.com/endersonmenezes/kimi-plugin-gateway/compare/main...HEAD
