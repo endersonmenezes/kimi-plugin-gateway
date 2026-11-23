@@ -1,6 +1,11 @@
 {
   "plugins": [
     {
+      "displayName": "claude-seo",
+      "id": "claude-seo",
+      "source": "https://github.com/endersonmenezes/kimi-plugin-gateway/releases/download/claude-seo-v2.6.2-gateway.1/claude-seo.zip"
+    },
+    {
       "displayName": "Impeccable",
       "id": "impeccable",
       "source": "https://github.com/endersonmenezes/kimi-plugin-gateway/releases/download/impeccable-v4.10.0-gateway.1/impeccable.zip"
