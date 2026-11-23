@@ -1,3 +1,6 @@
 [submodule "plugins/impeccable/upstream"]
 	path = plugins/impeccable/upstream
 	url = https://github.com/pbakaus/impeccable
+[submodule "plugins/claude-seo/upstream"]
+	path = plugins/claude-seo/upstream
+	url = https://github.com/AgricIDaniel/claude-seo

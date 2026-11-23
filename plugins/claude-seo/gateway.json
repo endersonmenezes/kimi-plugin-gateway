@@ -1,0 +1,11 @@
+{
+  "id": "claude-seo",
+  "releaseRevision": 1,
+  "upstream": {
+    "commit": "468ed5b0d9e3249394783710e54abb02837e326b",
+    "manifest": ".claude-plugin/plugin.json",
+    "requestedRef": "v2.6.2",
+    "sourceVersion": "2.6.2",
+    "url": "https://github.com/AgricIDaniel/claude-seo"
+  }
+}
