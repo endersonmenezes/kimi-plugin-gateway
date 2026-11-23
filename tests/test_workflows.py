@@ -31,16 +31,16 @@ FORBIDDEN_SCOPES = ("id-token", "actions:", "packages:",
                     "deployments:", "pages:")
 
 CONVERT_FIELD_TITLES = (
-    "URL pública do repositório GitHub",
-    "Tag, branch ou commit de origem",
-    "Id desejado no Gateway (opcional)",
-    "Caminho do manifesto Claude",
-    "Observações sobre adaptações necessárias (opcional)",
+    "Public GitHub repository URL",
+    "Source tag, branch, or commit",
+    "Desired Gateway plugin ID (optional)",
+    "Claude manifest path",
+    "Adaptation notes (optional)",
 )
 UPDATE_FIELD_TITLES = (
-    "Id do plugin no Gateway",
-    "Tag, branch ou commit de origem",
-    "Motivo da atualização (opcional)",
+    "Gateway plugin ID",
+    "Source tag, branch, or commit",
+    "Update reason (optional)",
 )
 
 

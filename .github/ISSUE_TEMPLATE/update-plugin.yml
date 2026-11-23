@@ -1,35 +1,34 @@
-name: Atualizar plugin convertido
-description: Solicita a atualização de um plugin já convertido para uma nova tag, branch ou commit do upstream
-title: "[update] <id do plugin>"
+name: Update a converted plugin
+description: Request an update of an existing plugin to a new upstream tag, branch, or commit
+title: "[update] <plugin-id>"
 labels: ["update"]
 body:
   - type: markdown
     attributes:
       value: |
-        Preencha os campos abaixo para solicitar a atualização de um plugin
-        já convertido. A automação resolve o novo ref, move o submódulo do
-        upstream, preserva overlays e edições manuais e abre um PR
-        vinculado a esta Issue.
+        Complete this form to request an upstream update. The workflow resolves
+        the new ref, updates the real submodule, preserves reviewed overlays and
+        manifest edits, and opens a pull request linked to this issue.
   - type: input
     id: plugin-id
     attributes:
-      label: Id do plugin no Gateway
-      description: "Id do diretório plugins/<id>/ já existente neste repositório"
-      placeholder: "meu-plugin"
+      label: Gateway plugin ID
+      description: "ID of an existing plugins/<id>/ directory in this repository"
+      placeholder: "my-plugin"
     validations:
       required: true
   - type: input
     id: requested-ref
     attributes:
-      label: Tag, branch ou commit de origem
-      description: "Nova tag (ex.: v1.3.0), branch ou SHA completo do commit upstream"
+      label: Source tag, branch, or commit
+      description: "A new tag (for example v1.3.0), branch, or full upstream commit SHA"
       placeholder: "v1.3.0"
     validations:
       required: true
   - type: textarea
     id: reason
     attributes:
-      label: Motivo da atualização (opcional)
-      description: "Contexto para quem revisar o PR: motivo da atualização, mudanças relevantes no upstream etc."
+      label: Update reason (optional)
+      description: "Context for reviewers: why the update is needed and any relevant upstream changes"
     validations:
       required: false

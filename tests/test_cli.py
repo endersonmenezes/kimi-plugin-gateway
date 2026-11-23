@@ -22,19 +22,19 @@ from gateway.operations import ConversionInputs, OperationResult, UpdateInputs
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-CONVERT_BODY = """### URL pública do repositório GitHub
+CONVERT_BODY = """### Public GitHub repository URL
 
 https://github.com/pbakaus/impeccable
 
-### Tag, branch ou commit de origem
+### Source tag, branch, or commit
 
 v4.10.0
 
-### Id desejado no Gateway (opcional)
+### Desired Gateway plugin ID (optional)
 
 meu-plugin
 
-### Caminho do manifesto Claude
+### Claude manifest path
 
 .claude-plugin/plugin.json
 
@@ -43,15 +43,15 @@ meu-plugin
 Revisar hooks antes de ativar.
 """
 
-UPDATE_BODY = """### Id do plugin no Gateway
+UPDATE_BODY = """### Gateway plugin ID
 
 meu-plugin
 
-### Tag, branch ou commit de origem
+### Source tag, branch, or commit
 
 v4.11.0
 
-### Motivo da atualização (opcional)
+### Update reason (optional)
 
 Correções na skill principal.
 """
@@ -104,8 +104,8 @@ class ConvertIssueEventTests(unittest.TestCase):
 
     def test_sem_id_opcional_usa_nome_do_manifesto(self):
         body = CONVERT_BODY.replace(
-            "### Id desejado no Gateway (opcional)\n\nmeu-plugin",
-            "### Id desejado no Gateway (opcional)\n\n_No response_",
+            "### Desired Gateway plugin ID (optional)\n\nmeu-plugin",
+            "### Desired Gateway plugin ID (optional)\n\n_No response_",
         )
         with tempfile.TemporaryDirectory() as tmp:
             event = make_event(Path(tmp), body)
@@ -120,8 +120,8 @@ class ConvertIssueEventTests(unittest.TestCase):
 
     def test_sem_caminho_do_manifesto_usa_padrao(self):
         body = CONVERT_BODY.replace(
-            "### Caminho do manifesto Claude\n\n.claude-plugin/plugin.json",
-            "### Caminho do manifesto Claude\n\n_No response_",
+            "### Claude manifest path\n\n.claude-plugin/plugin.json",
+            "### Claude manifest path\n\n_No response_",
         )
         with tempfile.TemporaryDirectory() as tmp:
             event = make_event(Path(tmp), body)
@@ -137,9 +137,9 @@ class ConvertIssueEventTests(unittest.TestCase):
 
     def test_url_obrigatoria_ausente_retorna_erro_de_input(self):
         body = CONVERT_BODY.replace(
-            "### URL pública do repositório GitHub\n\n"
+            "### Public GitHub repository URL\n\n"
             "https://github.com/pbakaus/impeccable",
-            "### URL pública do repositório GitHub\n\n_No response_",
+            "### Public GitHub repository URL\n\n_No response_",
         )
         with tempfile.TemporaryDirectory() as tmp:
             event = make_event(Path(tmp), body)
@@ -147,12 +147,12 @@ class ConvertIssueEventTests(unittest.TestCase):
                 "convert", "--issue-event", str(event), "--repo-root", tmp,
             ])
             self.assertEqual(code, INPUT_ERROR_EXIT)
-            self.assertIn("URL pública do repositório GitHub", err)
+            self.assertIn("Public GitHub repository URL", err)
 
     def test_ref_obrigatorio_ausente_retorna_erro_de_input(self):
         body = CONVERT_BODY.replace(
-            "### Tag, branch ou commit de origem\n\nv4.10.0",
-            "### Tag, branch ou commit de origem\n\n_No response_",
+            "### Source tag, branch, or commit\n\nv4.10.0",
+            "### Source tag, branch, or commit\n\n_No response_",
         )
         with tempfile.TemporaryDirectory() as tmp:
             event = make_event(Path(tmp), body)
@@ -160,7 +160,7 @@ class ConvertIssueEventTests(unittest.TestCase):
                 "convert", "--issue-event", str(event), "--repo-root", tmp,
             ])
             self.assertEqual(code, INPUT_ERROR_EXIT)
-            self.assertIn("Tag, branch ou commit de origem", err)
+            self.assertIn("Source tag, branch, or commit", err)
 
     def test_evento_inexistente_retorna_erro_de_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -248,8 +248,8 @@ class UpdateIssueEventTests(unittest.TestCase):
 
     def test_id_ausente_retorna_erro_de_input(self):
         body = UPDATE_BODY.replace(
-            "### Id do plugin no Gateway\n\nmeu-plugin",
-            "### Id do plugin no Gateway\n\n_No response_",
+            "### Gateway plugin ID\n\nmeu-plugin",
+            "### Gateway plugin ID\n\n_No response_",
         )
         with tempfile.TemporaryDirectory() as tmp:
             event = make_event(Path(tmp), body)
@@ -257,7 +257,7 @@ class UpdateIssueEventTests(unittest.TestCase):
                 "update", "--issue-event", str(event), "--repo-root", tmp,
             ])
             self.assertEqual(code, INPUT_ERROR_EXIT)
-            self.assertIn("Id do plugin no Gateway", err)
+            self.assertIn("Gateway plugin ID", err)
 
     def test_plugin_inexistente_e_rejeitado_antes_de_qualquer_rede(self):
         with tempfile.TemporaryDirectory() as tmp:

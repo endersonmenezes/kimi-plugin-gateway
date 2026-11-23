@@ -11,19 +11,19 @@ from gateway.issues import (
 )
 
 
-CONVERT_BODY = """### URL pública do repositório GitHub
+CONVERT_BODY = """### Public GitHub repository URL
 
 https://github.com/pbakaus/impeccable
 
-### Tag, branch ou commit de origem
+### Source tag, branch, or commit
 
 v4.10.0
 
-### Id desejado no Gateway (opcional)
+### Desired Gateway plugin ID (optional)
 
 _No response_
 
-### Caminho do manifesto Claude
+### Claude manifest path
 
 .claude-plugin/plugin.json
 
@@ -40,10 +40,10 @@ class ParseIssueFormTests(unittest.TestCase):
         self.assertEqual(
             list(fields),
             [
-                "URL pública do repositório GitHub",
-                "Tag, branch ou commit de origem",
-                "Id desejado no Gateway (opcional)",
-                "Caminho do manifesto Claude",
+                "Public GitHub repository URL",
+                "Source tag, branch, or commit",
+                "Desired Gateway plugin ID (optional)",
+                "Claude manifest path",
                 "Observações sobre adaptações necessárias (opcional)",
             ],
         )
@@ -51,18 +51,18 @@ class ParseIssueFormTests(unittest.TestCase):
     def test_parse_values(self):
         fields = parse_issue_form(CONVERT_BODY)
         self.assertEqual(
-            fields["URL pública do repositório GitHub"],
+            fields["Public GitHub repository URL"],
             "https://github.com/pbakaus/impeccable",
         )
-        self.assertEqual(fields["Tag, branch ou commit de origem"], "v4.10.0")
+        self.assertEqual(fields["Source tag, branch, or commit"], "v4.10.0")
         self.assertEqual(
-            fields["Caminho do manifesto Claude"], ".claude-plugin/plugin.json"
+            fields["Claude manifest path"], ".claude-plugin/plugin.json"
         )
 
     def test_no_response_becomes_empty_string(self):
         fields = parse_issue_form(CONVERT_BODY)
         self.assertEqual(
-            fields["Id desejado no Gateway (opcional)"], ""
+            fields["Desired Gateway plugin ID (optional)"], ""
         )
 
     def test_multiline_block_is_preserved(self):

@@ -1,50 +1,50 @@
-name: Converter plugin Claude
-description: Solicita a conversão automática de um plugin Claude em plugin Kimi distribuído pelo Gateway
+name: Convert a Claude plugin
+description: Request conversion of a Claude plugin into an independently installable Kimi plugin
 title: "[conversion] <owner>/<repo>"
 labels: ["conversion"]
 body:
   - type: markdown
     attributes:
       value: |
-        Preencha os campos abaixo para solicitar a conversão de um plugin
-        Claude. A automação valida os campos, converte o plugin e abre um
-        PR vinculado a esta Issue — nenhum campo é executado como comando.
-        Campos inválidos geram um comentário de erro nesta Issue.
+        Complete this form to request a plugin conversion. The workflow validates
+        the inputs, converts the plugin, and opens a pull request linked to this
+        issue. Values are treated as data, never executed as commands. Invalid
+        requests receive an error comment on this issue.
   - type: input
     id: repository-url
     attributes:
-      label: URL pública do repositório GitHub
-      description: "Somente repositórios públicos do GitHub, ex.: https://github.com/<owner>/<repo>"
+      label: Public GitHub repository URL
+      description: "Public GitHub repositories only, for example https://github.com/<owner>/<repo>"
       placeholder: "https://github.com/owner/repo"
     validations:
       required: true
   - type: input
     id: requested-ref
     attributes:
-      label: Tag, branch ou commit de origem
-      description: "Tag (ex.: v1.2.0), branch ou SHA completo do commit upstream; o ref é resolvido para um commit completo antes do PR"
+      label: Source tag, branch, or commit
+      description: "A tag (for example v1.2.0), branch, or full upstream commit SHA; the workflow resolves it to a full commit before the pull request"
       placeholder: "v1.2.0"
     validations:
       required: true
   - type: input
     id: plugin-id
     attributes:
-      label: Id desejado no Gateway (opcional)
-      description: "Id Kimi do plugin (ex.: meu-plugin); deixe vazio para usar o nome do manifesto de origem"
+      label: Desired Gateway plugin ID (optional)
+      description: "A valid Kimi plugin ID such as my-plugin; leave empty to use the upstream manifest name"
     validations:
       required: false
   - type: input
     id: manifest-path
     attributes:
-      label: Caminho do manifesto Claude
-      description: "Caminho relativo do .claude-plugin/plugin.json dentro do repositório upstream"
+      label: Claude manifest path
+      description: "Relative path to .claude-plugin/plugin.json inside the upstream repository"
       value: ".claude-plugin/plugin.json"
     validations:
       required: true
   - type: textarea
     id: notes
     attributes:
-      label: Observações sobre adaptações necessárias (opcional)
-      description: "Contexto para quem revisar o PR: capacidades a adaptar, hooks, MCP, instruções específicas do Claude etc."
+      label: Adaptation notes (optional)
+      description: "Context for reviewers: capabilities to adapt, hooks, MCP servers, Claude-specific instructions, or other compatibility concerns"
     validations:
       required: false

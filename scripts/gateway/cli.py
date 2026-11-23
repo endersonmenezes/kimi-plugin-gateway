@@ -50,12 +50,12 @@ SUBCOMMANDS = ("convert", "update", "validate", "package", "changed-plugins")
 
 DEFAULT_MANIFEST_PATH = ".claude-plugin/plugin.json"
 
-# Títulos exatos dos campos dos Issue Forms (.github/ISSUE_TEMPLATE/).
-ISSUE_FIELD_REPOSITORY_URL = "URL pública do repositório GitHub"
-ISSUE_FIELD_REQUESTED_REF = "Tag, branch ou commit de origem"
-ISSUE_FIELD_DESIRED_ID = "Id desejado no Gateway (opcional)"
-ISSUE_FIELD_MANIFEST_PATH = "Caminho do manifesto Claude"
-ISSUE_FIELD_PLUGIN_ID = "Id do plugin no Gateway"
+# Exact field titles from the Issue Forms (.github/ISSUE_TEMPLATE/).
+ISSUE_FIELD_REPOSITORY_URL = "Public GitHub repository URL"
+ISSUE_FIELD_REQUESTED_REF = "Source tag, branch, or commit"
+ISSUE_FIELD_DESIRED_ID = "Desired Gateway plugin ID (optional)"
+ISSUE_FIELD_MANIFEST_PATH = "Claude manifest path"
+ISSUE_FIELD_PLUGIN_ID = "Gateway plugin ID"
 
 
 def build_parser() -> argparse.ArgumentParser:

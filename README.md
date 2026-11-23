@@ -1,102 +1,99 @@
-# kimi-plugin-gateway
+# Kimi Plugin Gateway
 
-Gateway de distribuição de plugins Kimi convertidos de plugins Claude. Cada
-plugin fica em `plugins/<id>/` com o upstream como submódulo Git em
-`upstream/`, um manifesto Kimi gerado (`kimi.plugin.json`), os metadados de
-procedência (`gateway.json`), overlays declarativos em `overlays/` e uma
-entrada no catálogo `marketplace.json` na raiz.
+Kimi Plugin Gateway converts Claude plugins into independently installable Kimi Code plugins without forking the upstream projects. Each adaptation uses a real Git submodule pinned to a full commit, a generated Kimi manifest, reviewed overlays, and a standalone release archive.
 
-## Solicitando um plugin (usuários)
+> **Project status:** early development. The initial workflows and Impeccable adaptation are available for review, but runtime acceptance and the first releases are still being validated.
 
-1. Abra uma **Issue** com um dos modelos:
-   - **Converter plugin Claude** (rótulo `conversion`): informe a URL pública
-     do repositório GitHub, a tag/branch/commit de origem, o id desejado
-     (opcional) e o caminho do manifesto Claude.
-   - **Atualizar plugin convertido** (rótulo `update`): informe o id de um
-     plugin existente e o novo ref upstream.
-2. O workflow IssueOps correspondente valida os campos, executa a operação
-   via CLI (`--issue-event`) e abre um PR a partir da branch determinística
-   `issueops/issue-<número>-<id>`.
-3. Se algo falhar, um comentário automático na Issue explica o motivo e
-   aponta o run.
+## Why a gateway?
 
-Nenhum campo de Issue é interpolado em shell: os workflows gravam o evento
-em JSON e passam apenas o caminho ao CLI.
+- **No adaptation forks:** upstream projects remain Git submodules.
+- **Reproducible provenance:** every plugin records its upstream URL, requested ref, full commit, source version, and Gateway revision.
+- **Independent installation:** users install only the plugin they need.
+- **Human approval:** IssueOps creates pull requests; CODEOWNERS review changes before release.
+- **Reviewable adaptations:** Gateway-specific file changes live in overlays rather than inside upstream files.
+- **Safer automation:** conversion does not execute upstream installers, hooks, MCP servers, or package managers.
 
-## Revisando (mantenedores)
+## Available plugins
 
-- `.github/CODEOWNERS` designa `@endersonmenezes` como revisor obrigatório
-  de catálogo, workflows e scripts.
-- Todo PR dispara o workflow de validação: suíte completa de testes mais
-  validação e empacotamento local de todos os plugins, sem publicar nada.
-- O PR do IssueOps contém o resumo da operação (id, commit de origem,
-  tag e relatório de capacidades) para revisão da cadeia de origem.
-- Para repetir uma operação: **Actions → IssueOps → Run workflow** informando
-  o número da Issue. A repetição relê os campos atuais da Issue, reutiliza a
-  branch e o mesmo PR (push comum, sem force-push) e adiciona um novo commit.
+| Plugin | Upstream version | Upstream project | Upstream license |
+| --- | --- | --- | --- |
+| Impeccable | 4.10.0 | [pbakaus/impeccable](https://github.com/pbakaus/impeccable) | Apache-2.0 |
 
-## Releases
+The initial Impeccable adaptation is pinned to commit `b49177d32788f2dc585c42831d845dacf1ebed2c` from tag `skill-v4.10.0`.
 
-- Somente o workflow `release.yml` publica, após push na `main` — releases
-  nunca são criadas a partir de Issue ou PR.
-- O workflow seleciona os plugins com arquivos alterados no push
-  (`changed-plugins` sobre o evento de push) e publica **um release por
-  plugin**, em jobs independentes (`fail-fast: false`): ZIP autocontido
-  `<id>.zip` e checksum separado `<id>.zip.sha256`.
-- Tags (`<id>-v<versão>-gateway.<revisão>`) e assets são **imutáveis**: o
-  workflow confere tag e release existentes antes de criar e falha visível
-  em vez de substituir. O retry manual (`workflow_dispatch` com o id do
-  plugin) republica sem alterar metadados nem o marketplace.
+## Install a plugin
 
-## Desenvolvimento local
+After the corresponding release is published, open the custom marketplace in Kimi Code:
 
-Requisitos: Python 3 (somente biblioteca padrão) e Git.
-
-```bash
-# converter um plugin Claude (rede: clona o upstream)
-PYTHONPATH=scripts python3 -m gateway convert \
-  --repository-url https://github.com/<owner>/<repo> --ref v1.2.0 \
-  --plugin-id meu-plugin --repo-root .
-
-# atualizar um plugin convertido para um novo ref
-PYTHONPATH=scripts python3 -m gateway update \
-  --plugin-id meu-plugin --ref v1.3.0 --repo-root .
-
-# validar e empacotar localmente
-PYTHONPATH=scripts python3 -m gateway validate --plugin-id meu-plugin --repo-root .
-PYTHONPATH=scripts python3 -m gateway package --plugin-id meu-plugin \
-  --output-dir dist --repo-root .
-
-# listar plugins alterados por um evento de push (usado pelo release)
-PYTHONPATH=scripts python3 -m gateway changed-plugins \
-  --event-path event.json --repo-root .
-
-# testes
-PYTHONPATH=scripts python3 -m unittest discover -s tests -v
+```text
+/plugins marketplace https://raw.githubusercontent.com/endersonmenezes/kimi-plugin-gateway/main/marketplace.json
 ```
 
-Os mesmos comandos `convert` e `update` aceitam `--issue-event <arquivo.json>`
-com o evento da Issue, como usado pelos workflows.
+Select only the plugin you want. Each marketplace entry points to a standalone ZIP release asset containing the manifest and the upstream files; no recursive clone is required.
 
-## Governança
+You can also install a plugin ZIP directly:
 
-- `.github/CODEOWNERS`: revisão obrigatória de `@endersonmenezes`.
-- Permissões mínimas por workflow nos arquivos de `.github/workflows/`
-  (workflows de IssueOps não publicam releases; validação é somente leitura).
+```text
+/plugins install https://github.com/endersonmenezes/kimi-plugin-gateway/releases/download/<plugin-tag>/<plugin-id>.zip
+```
 
-### Proteção da branch `main` (configuração obrigatória)
+Run `/reload` or start a new session after installation. Use `/plugins info <id>` to inspect the manifest and diagnostics.
 
-A proteção de branch **não pode ser garantida pelos arquivos deste
-repositório** — ela é uma configuração administrativa do GitHub e **pode não
-estar ativa**. O mantenedor deve conferir e manter em
-**Settings → Branches** as seguintes regras para `main`:
+## Request a conversion or update
 
-- exigir pull request antes do merge;
-- exigir pelo menos 1 aprovação e revisão de CODEOWNER;
-- exigir resolução das conversas;
-- exigir os status checks do workflow de validação;
-- invalidar aprovações quando novos commits forem adicionados;
-- restringir pushes diretos (inclusive para administradores).
+Open an issue using the [issue forms](https://github.com/endersonmenezes/kimi-plugin-gateway/issues/new/choose):
 
-Sem essa configuração, CODEOWNERS e os checks de CI não impedem que um merge
-ou push direto contorne a revisão.
+- **Convert a Claude plugin:** provide a public GitHub repository, a tag/branch/commit, and optionally a plugin ID and Claude manifest path.
+- **Update a converted plugin:** provide an existing plugin ID and the new upstream ref.
+
+The corresponding workflow validates the inputs, resolves the ref to a full commit, and opens a pull request. Invalid requests receive an issue comment with the failure and workflow run.
+
+A conversion or update does not publish a release by itself. A maintainer must review and approve the pull request.
+
+## Repository layout
+
+```text
+plugins/<id>/
+  gateway.json          # Upstream and release metadata
+  kimi.plugin.json      # Kimi plugin manifest
+  overlays/             # Optional Gateway-maintained changes
+  upstream/             # Real Git submodule at a pinned commit
+scripts/gateway/        # Standard-library Python automation
+.github/                # Issue Forms, workflows, and CODEOWNERS
+marketplace.json        # Independent plugin sources
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for local commands and architecture details.
+
+## Review and releases
+
+- `.github/CODEOWNERS` assigns review to `@endersonmenezes`.
+- Pull requests run the complete test suite and validate/package all plugins without publishing.
+- Only merges to `main` or authorized manual dispatches can publish releases.
+- Each changed plugin receives an independent ZIP and SHA-256 checksum.
+- Tags follow `<id>-v<sourceVersion>-gateway.<revision>` and releases/assets are immutable.
+
+### Required branch protection
+
+CODEOWNERS alone does not enforce review. The repository administrator must configure `main` under **Settings → Branches** to require:
+
+- a pull request before merging;
+- at least one approval and CODEOWNER review;
+- resolved conversations;
+- required validation checks;
+- stale approval dismissal after new commits;
+- no direct pushes, including for administrators.
+
+Until those settings are active, the repository does not fully enforce its review policy.
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), [DEVELOPMENT.md](DEVELOPMENT.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Public-facing documentation, commit messages, pull requests, and review discussions use English.
+
+Notable changes are tracked in [CHANGELOG.md](CHANGELOG.md). Security reports follow [SECURITY.md](SECURITY.md).
+
+## License
+
+Gateway code and original documentation are available under the [MIT License](LICENSE).
+
+Third-party projects retain their original licenses. Impeccable is Apache-2.0 and its license and notices are preserved in the submodule and generated archives. See [NOTICE.md](NOTICE.md).
