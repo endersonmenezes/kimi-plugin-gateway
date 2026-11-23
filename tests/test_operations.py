@@ -90,7 +90,7 @@ def make_upstream(
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         commit_all(f"release {tag}")
-        git(repo, "tag", "-a", "-m", f"release {tag}", tag)
+        git(repo, "-c", "user.name=Gateway Tests", "-c", "user.email=tests@example.com", "tag", "-a", "-m", f"release {tag}", tag)
     return repo
 
 
@@ -197,7 +197,7 @@ class ResolveRemoteRefTests(unittest.TestCase):
         )
         self.commit = git(self.repo, "rev-parse", "HEAD")
         git(self.repo, "config", "tag.gpgSign", "false")
-        git(self.repo, "tag", "-a", "-m", "release anotada", "v-anotada")
+        git(self.repo, "-c", "user.name=Gateway Tests", "-c", "user.email=tests@example.com", "tag", "-a", "-m", "release anotada", "v-anotada")
         self.tag_object = git(self.repo, "rev-parse", "v-anotada^{tag}")
         git(self.repo, "tag", "v-leve")
         git(self.repo, "branch", "ramo")

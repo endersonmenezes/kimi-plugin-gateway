@@ -19,4 +19,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Initial Impeccable 4.10.0 adaptation, pinned to upstream commit `b49177d32788f2dc585c42831d845dacf1ebed2c`.
 - English documentation for installation, development, contributions, security, and third-party licensing.
 
+### Fixed
+
+- Made Git test fixtures independent of machine-specific author configuration so annotated-tag tests also pass on clean CI runners.
+
 [Unreleased]: https://github.com/endersonmenezes/kimi-plugin-gateway/compare/main...HEAD

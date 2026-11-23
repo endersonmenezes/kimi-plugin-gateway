@@ -288,7 +288,9 @@ class SourceVersionFromManifestTests(unittest.TestCase):
             git("-c", "user.name=Gateway Tests",
                 "-c", "user.email=tests@example.com",
                 "commit", "-q", "-m", "fixture")
-            git("tag", "-a", "-m", "ref de teste", "v9.9.9")
+            git("-c", "user.name=Gateway Tests",
+                "-c", "user.email=tests@example.com",
+                "tag", "-a", "-m", "ref de teste", "v9.9.9")
             git("checkout", "-q", "-b", "relatorio-manual")
 
             versions = []

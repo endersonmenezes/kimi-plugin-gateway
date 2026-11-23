@@ -370,7 +370,12 @@ def make_upstream_repo(tmp: Path) -> Path:
         "-c", "user.email=tests@example.com",
         "commit", "-q", "-m", "fixture com script-marca",
     )
-    git(repo, "tag", "-a", "-m", "release v4.10.0", "v4.10.0")
+    git(
+        repo,
+        "-c", "user.name=Gateway Tests",
+        "-c", "user.email=tests@example.com",
+        "tag", "-a", "-m", "release v4.10.0", "v4.10.0",
+    )
     return repo
 
 
